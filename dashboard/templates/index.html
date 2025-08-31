@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thanatos Admin Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/dashboard.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-skull"></i> Thanatos Admin
+            </a>
+            
+            <div class="navbar-nav ms-auto">
+                <div class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                        {% if user.avatar %}
+                            <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=32" 
+                                 class="rounded-circle me-2" width="32" height="32">
+                        {% else %}
+                            <i class="fas fa-user-circle me-2"></i>
+                        {% endif %}
+                        {{ user.username }}
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar">
+                <div class="position-sticky pt-3">
+                    <ul class="nav nav-pills flex-column mb-auto">
+                        <li class="nav-item">
+                            <a href="{{ url_for('index') }}" class="nav-link active">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('forum_management') }}" class="nav-link">
+                                <i class="fas fa-comments"></i> Forum Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('loa_management') }}" class="nav-link">
+                                <i class="fas fa-calendar-alt"></i> LOA Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('mass_dm') }}" class="nav-link">
+                                <i class="fas fa-envelope"></i> Mass Role DM
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('audit_management') }}" class="nav-link">
+                                <i class="fas fa-clipboard-list"></i> Audit Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-users"></i> Member Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-box"></i> Contributions
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-cog"></i> Settings
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Dashboard Overview</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <div class="btn-group me-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-download"></i> Export
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <!-- Quick Stats -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card bg-primary text-white">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h5 class="card-title">Forum Categories</h5>
+                                        <h2 id="category-count">12</h2>
+                                    </div>
+                                    <div class="align-self-center">
+                                        <i class="fas fa-layer-group fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h5 class="card-title">Active Threads</h5>
+                                        <h2 id="thread-count">0</h2>
+                                    </div>
+                                    <div class="align-self-center">
+                                        <i class="fas fa-comments fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-warning text-white">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h5 class="card-title">Contributions Today</h5>
+                                        <h2 id="contrib-count">0</h2>
+                                    </div>
+                                    <div class="align-self-center">
+                                        <i class="fas fa-box fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-info text-white">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h5 class="card-title">Active LOAs</h5>
+                                        <h2 id="loa-count">0</h2>
+                                    </div>
+                                    <div class="align-self-center">
+                                        <i class="fas fa-calendar-alt fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-bolt"></i> Quick Actions</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-3 mb-3">
+                                        <div class="d-grid">
+                                            <a href="{{ url_for('forum_management') }}" class="btn btn-primary btn-lg">
+                                                <i class="fas fa-comments"></i><br>
+                                                <strong>Forum Management</strong><br>
+                                                <small>Set up category mappings</small>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <div class="d-grid">
+                                            <a href="{{ url_for('loa_management') }}" class="btn btn-info btn-lg">
+                                                <i class="fas fa-calendar-alt"></i><br>
+                                                <strong>LOA Management</strong><br>
+                                                <small>Manage leave requests</small>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <div class="d-grid">
+                                            <a href="{{ url_for('mass_dm') }}" class="btn btn-warning btn-lg">
+                                                <i class="fas fa-envelope"></i><br>
+                                                <strong>Mass Role DM</strong><br>
+                                                <small>Send messages to roles</small>
+                                            </a>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <div class="d-grid">
+                                            <a href="{{ url_for('audit_management') }}" class="btn btn-secondary btn-lg">
+                                                <i class="fas fa-clipboard-list"></i><br>
+                                                <strong>Audit Management</strong><br>
+                                                <small>Review audit logs</small>
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Status -->
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-heartbeat"></i> System Status</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Bot Connection</span>
+                                        <span class="badge bg-success">Online</span>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Database</span>
+                                        <span class="badge bg-success">Connected</span>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Discord API</span>
+                                        <span class="badge bg-success">Active</span>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Last Sync</span>
+                                        <span class="text-muted" id="last-sync">Just now</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-chart-line"></i> Recent Activity</h5>
+                            </div>
+                            <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                                <div id="activity-feed">
+                                    <div class="activity-item">
+                                        <i class="fas fa-box text-primary"></i>
+                                        <span>New contribution: Pistols - Glock 18 (x2)</span>
+                                        <small class="text-muted">5 minutes ago</small>
+                                    </div>
+                                    <div class="activity-item">
+                                        <i class="fas fa-comments text-success"></i>
+                                        <span>Forum thread updated: Mech Parts</span>
+                                        <small class="text-muted">15 minutes ago</small>
+                                    </div>
+                                    <div class="activity-item">
+                                        <i class="fas fa-user-plus text-info"></i>
+                                        <span>New member joined: TestUser123</span>
+                                        <small class="text-muted">1 hour ago</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    
+    <script>
+        // Load initial stats
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDashboardStats();
+            updateLastSync();
+            
+            // Update stats every 30 seconds
+            setInterval(loadDashboardStats, 30000);
+        });
+        
+        function loadDashboardStats() {
+            // This would make API calls to get real stats
+            // For now, just update with mock data
+        }
+        
+        function updateLastSync() {
+            document.getElementById('last-sync').textContent = new Date().toLocaleTimeString();
+        }
+        
+        function loadContributions() {
+            // Navigate to contributions page
+            window.location.href = '/contributions';
+        }
+        
+        function loadLOAs() {
+            // Navigate to LOA management page
+            window.location.href = '/loa-management';
+        }
+    </script>
+</body>
+</html>

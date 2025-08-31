@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mass Role DM - Thanatos Admin Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/dashboard.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-skull"></i> Thanatos Admin
+            </a>
+            
+            <div class="navbar-nav ms-auto">
+                <div class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                        {% if user.avatar %}
+                            <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=32" 
+                                 class="rounded-circle me-2" width="32" height="32">
+                        {% else %}
+                            <i class="fas fa-user-circle me-2"></i>
+                        {% endif %}
+                        {{ user.username }}
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar">
+                <div class="position-sticky pt-3">
+                    <ul class="nav nav-pills flex-column mb-auto">
+                        <li class="nav-item">
+                            <a href="{{ url_for('index') }}" class="nav-link">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('forum_management') }}" class="nav-link">
+                                <i class="fas fa-comments"></i> Forum Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('loa_management') }}" class="nav-link">
+                                <i class="fas fa-calendar-alt"></i> LOA Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('mass_dm') }}" class="nav-link active">
+                                <i class="fas fa-envelope"></i> Mass Role DM
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('audit_management') }}" class="nav-link">
+                                <i class="fas fa-clipboard-list"></i> Audit Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-users"></i> Member Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-box"></i> Contributions
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-cog"></i> Settings
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2"><i class="fas fa-envelope"></i> Mass Role DM</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-secondary" onclick="window.location.href='{{ url_for('index') }}'">
+                            <i class="fas fa-arrow-left"></i> Back to Dashboard
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <!-- Alert container for API responses -->
+                <div id="alert-container"></div>
+
+            <!-- Mass DM Form -->
+            <div class="row mt-4">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-envelope"></i> Compose Mass DM</h5>
+                        </div>
+                        <div class="card-body">
+                            <form id="massDMForm">
+                                <!-- Role Selection -->
+                                <div class="mb-3">
+                                    <label for="roleSelect" class="form-label">
+                                        <strong>Select Role</strong>
+                                    </label>
+                                    <select class="form-select" id="roleSelect" required>
+                                        <option value="">Choose a role...</option>
+                                    </select>
+                                    <div class="form-text">Select the role to send DMs to all its members.</div>
+                                </div>
+
+                                <!-- Role Members Preview -->
+                                <div id="roleMembersPreview" style="display: none;">
+                                    <div class="alert alert-info">
+                                        <strong>Recipients:</strong>
+                                        <span id="memberCount">0</span> members will receive this message.
+                                        <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="viewMembersBtn">
+                                            View Members
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Message Content -->
+                                <div class="mb-3">
+                                    <label for="messageContent" class="form-label">
+                                        <strong>Message Content</strong>
+                                    </label>
+                                    <textarea class="form-control" id="messageContent" rows="6" required
+                                              placeholder="Enter your message here..."></textarea>
+                                    <div class="form-text">
+                                        <span id="charCount">0</span>/2000 characters.
+                                        The message will be sent as an embed with your name as the sender.
+                                    </div>
+                                </div>
+
+                                <!-- Send Button -->
+                                <div class="d-grid gap-2">
+                                    <button type="submit" class="btn btn-primary btn-lg" id="sendBtn" disabled>
+                                        <i class="bi bi-send"></i> Send Mass DM
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Info Panel -->
+                <div class="col-md-4">
+                    <div class="card bg-light">
+                        <div class="card-header">
+                            <h6><i class="bi bi-info-circle"></i> Information</h6>
+                        </div>
+                        <div class="card-body">
+                            <h6>How Mass DM Works:</h6>
+                            <ul class="small">
+                                <li>Select a role from the dropdown</li>
+                                <li>All non-bot members with that role will receive the DM</li>
+                                <li>Messages are sent with a delay to avoid rate limits</li>
+                                <li>Recipients can reply and their messages will be relayed back</li>
+                                <li>All DMs are logged for audit purposes</li>
+                            </ul>
+
+                            <h6 class="mt-3">Important Notes:</h6>
+                            <ul class="small text-muted">
+                                <li>Some users may have DMs disabled</li>
+                                <li>The process may take several minutes for large roles</li>
+                                <li>You'll receive a summary when complete</li>
+                                <li>This action is logged with your username</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Back to Main Dashboard -->
+            <div class="row mt-4">
+                <div class="col-md-12">
+                    <a href="/" class="btn btn-secondary">
+                        <i class="bi bi-house"></i> Back to Dashboard
+                    </a>
+                    <a href="/loa-management" class="btn btn-warning ms-2">
+                        <i class="bi bi-calendar-x"></i> LOA Management
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Members Modal -->
+    <div class="modal fade" id="viewMembersModal" tabindex="-1" aria-labelledby="viewMembersModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="viewMembersModalLabel">
+                        <i class="bi bi-people"></i> Role Members
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="membersListContainer">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading members...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="confirmModalLabel">
+                        <i class="bi bi-exclamation-triangle-fill text-warning"></i> Confirm Mass DM
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-warning">
+                        <strong>Warning:</strong> You are about to send a DM to multiple users. This action cannot be undone.
+                    </div>
+                    <div id="confirmationDetails">
+                        <!-- Details will be populated here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirmSend">
+                        <i class="bi bi-send"></i> Send Mass DM
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let allRoles = [];
+        let selectedRoleMembers = [];
+        let selectedRole = null;
+
+        // Load roles on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadRoles();
+            setupEventListeners();
+        });
+
+        // Setup event listeners
+        function setupEventListeners() {
+            const roleSelect = document.getElementById('roleSelect');
+            const messageContent = document.getElementById('messageContent');
+            const form = document.getElementById('massDMForm');
+            const viewMembersBtn = document.getElementById('viewMembersBtn');
+
+            // Role selection change
+            roleSelect.addEventListener('change', function() {
+                handleRoleChange(this.value);
+            });
+
+            // Message content change
+            messageContent.addEventListener('input', function() {
+                updateCharCount(this.value);
+                updateSendButton();
+            });
+
+            // Form submission
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                showConfirmation();
+            });
+
+            // View members button
+            viewMembersBtn.addEventListener('click', function() {
+                showMembersModal();
+            });
+        }
+
+        // Load all server roles
+        function loadRoles() {
+            fetch('/api/roles')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        allRoles = data.roles;
+                        populateRoleSelect(data.roles);
+                    } else {
+                        showAlert('danger', `Error loading roles: ${data.error}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading roles:', error);
+                    showAlert('danger', 'Failed to load roles. Please try again.');
+                });
+        }
+
+        // Populate role select dropdown
+        function populateRoleSelect(roles) {
+            const roleSelect = document.getElementById('roleSelect');
+            roleSelect.innerHTML = '<option value="">Choose a role...</option>';
+
+            roles.forEach(role => {
+                const option = document.createElement('option');
+                option.value = role.id;
+                option.textContent = role.name;
+                option.style.color = role.color > 0 ? `#${role.color.toString(16).padStart(6, '0')}` : '';
+                roleSelect.appendChild(option);
+            });
+        }
+
+        // Handle role selection change
+        function handleRoleChange(roleId) {
+            const preview = document.getElementById('roleMembersPreview');
+            
+            if (!roleId) {
+                preview.style.display = 'none';
+                selectedRole = null;
+                selectedRoleMembers = [];
+                updateSendButton();
+                return;
+            }
+
+            selectedRole = allRoles.find(r => r.id === roleId);
+            
+            // Load members for this role
+            fetch(`/api/role/${roleId}/members`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        selectedRoleMembers = data.members;
+                        document.getElementById('memberCount').textContent = data.count;
+                        preview.style.display = 'block';
+                        updateSendButton();
+                    } else {
+                        showAlert('danger', `Error loading role members: ${data.error}`);
+                        preview.style.display = 'none';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading role members:', error);
+                    showAlert('danger', 'Failed to load role members. Please try again.');
+                    preview.style.display = 'none';
+                });
+        }
+
+        // Update character count
+        function updateCharCount(text) {
+            document.getElementById('charCount').textContent = text.length;
+        }
+
+        // Update send button state
+        function updateSendButton() {
+            const roleSelect = document.getElementById('roleSelect');
+            const messageContent = document.getElementById('messageContent');
+            const sendBtn = document.getElementById('sendBtn');
+
+            const hasRole = roleSelect.value !== '';
+            const hasMessage = messageContent.value.trim().length > 0;
+            const hasMembers = selectedRoleMembers.length > 0;
+
+            sendBtn.disabled = !(hasRole && hasMessage && hasMembers);
+        }
+
+        // Show members modal
+        function showMembersModal() {
+            if (selectedRoleMembers.length === 0) return;
+
+            const container = document.getElementById('membersListContainer');
+            
+            let html = '<div class="row">';
+            selectedRoleMembers.forEach((member, index) => {
+                if (index > 0 && index % 3 === 0) {
+                    html += '</div><div class="row">';
+                }
+                html += `
+                    <div class="col-md-4 mb-2">
+                        <div class="d-flex align-items-center">
+                            <div class="me-2">
+                                <i class="bi bi-person-circle"></i>
+                            </div>
+                            <div>
+                                <div class="fw-bold">${member.display_name}</div>
+                                <small class="text-muted">@${member.username}</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+
+            container.innerHTML = html;
+
+            const modal = new bootstrap.Modal(document.getElementById('viewMembersModal'));
+            modal.show();
+        }
+
+        // Show confirmation modal
+        function showConfirmation() {
+            const messageContent = document.getElementById('messageContent').value;
+            const roleName = selectedRole ? selectedRole.name : 'Unknown Role';
+            const memberCount = selectedRoleMembers.length;
+
+            const confirmationHtml = `
+                <div class="card">
+                    <div class="card-body">
+                        <h6>Mass DM Details:</h6>
+                        <p><strong>Role:</strong> ${roleName}</p>
+                        <p><strong>Recipients:</strong> ${memberCount} members</p>
+                        <p><strong>Message Preview:</strong></p>
+                        <div class="bg-light p-3 border rounded">
+                            ${messageContent.replace(/\n/g, '<br>')}
+                        </div>
+                    </div>
+                </div>
+                <p class="mt-3"><strong>This will:</strong></p>
+                <ul>
+                    <li>Send a DM to ${memberCount} members with the "${roleName}" role</li>
+                    <li>Messages will be sent with your name as the sender</li>
+                    <li>Recipients can reply and messages will be relayed back</li>
+                    <li>All DMs will be logged in the audit system</li>
+                    <li>Process may take several minutes to complete</li>
+                </ul>
+            `;
+
+            document.getElementById('confirmationDetails').innerHTML = confirmationHtml;
+
+            const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
+            modal.show();
+        }
+
+        // Confirm and send mass DM
+        document.getElementById('confirmSend').addEventListener('click', function() {
+            const btn = this;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sending...';
+
+            const roleId = document.getElementById('roleSelect').value;
+            const message = document.getElementById('messageContent').value;
+
+            fetch('/api/mass-dm/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    role_id: roleId,
+                    message: message
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Close modal
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('confirmModal'));
+                    modal.hide();
+
+                    // Show success message with results
+                    const results = data.results;
+                    const successMessage = `
+                        Mass DM completed successfully!<br>
+                        <strong>Results:</strong> ${results.successful}/${results.total} messages sent successfully.
+                        ${results.failed > 0 ? `<br><small>${results.failed} messages failed (users may have DMs disabled)</small>` : ''}
+                    `;
+                    showAlert('success', successMessage);
+
+                    // Reset form
+                    document.getElementById('massDMForm').reset();
+                    document.getElementById('roleMembersPreview').style.display = 'none';
+                    selectedRole = null;
+                    selectedRoleMembers = [];
+                    updateSendButton();
+                } else {
+                    showAlert('danger', `Error sending mass DM: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error sending mass DM:', error);
+                showAlert('danger', 'Failed to send mass DM. Please try again.');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+        });
+
+        // Show alert message
+        function showAlert(type, message) {
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    <i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-triangle'}"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+
+            // Insert at the top of the container
+            const container = document.querySelector('.container');
+            const alertContainer = document.createElement('div');
+            alertContainer.innerHTML = alertHtml;
+            container.insertBefore(alertContainer, container.firstChild.nextSibling);
+
+            // Auto-dismiss after 10 seconds for success messages
+            if (type === 'success') {
+                setTimeout(() => {
+                    const alert = alertContainer.querySelector('.alert');
+                    if (alert) {
+                        bootstrap.Alert.getOrCreateInstance(alert).close();
+                    }
+                }, 10000);
+            }
+        }
+    </script>
+</body>
+</html>

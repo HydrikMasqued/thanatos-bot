@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forum Management - Thanatos Admin Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/dashboard.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-skull"></i> Thanatos Admin
+            </a>
+            
+            <div class="navbar-nav ms-auto">
+                <div class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                        {% if user.avatar %}
+                            <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=32" 
+                                 class="rounded-circle me-2" width="32" height="32">
+                        {% else %}
+                            <i class="fas fa-user-circle me-2"></i>
+                        {% endif %}
+                        {{ user.username }}
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar">
+                <div class="position-sticky pt-3">
+                    <ul class="nav nav-pills flex-column mb-auto">
+                        <li class="nav-item">
+                            <a href="{{ url_for('index') }}" class="nav-link">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('forum_management') }}" class="nav-link active">
+                                <i class="fas fa-comments"></i> Forum Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('loa_management') }}" class="nav-link">
+                                <i class="fas fa-calendar-alt"></i> LOA Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('mass_dm') }}" class="nav-link">
+                                <i class="fas fa-envelope"></i> Mass Role DM
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('audit_management') }}" class="nav-link">
+                                <i class="fas fa-clipboard-list"></i> Audit Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-users"></i> Member Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-box"></i> Contributions
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-cog"></i> Settings
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Forum Thread Management</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-sm btn-success me-2" onclick="saveAllMappings()">
+                            <i class="fas fa-save me-1"></i>Save All Changes
+                        </button>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="resetAllMappings()">
+                            <i class="fas fa-undo me-1"></i>Reset Changes
+                        </button>
+                    </div>
+                </div>
+
+                <div class="alert alert-info" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Forum Thread Management:</strong> Assign forum threads to contribution categories. 
+                    Each category can be mapped to a specific thread where contributions will be posted.
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading forum data...</p>
+                </div>
+
+                <!-- Error alert -->
+                <div id="errorAlert" class="alert alert-danger d-none" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <span id="errorMessage"></span>
+                </div>
+
+                <!-- Success alert -->
+                <div id="successAlert" class="alert alert-success d-none" role="alert">
+                    <i class="fas fa-check-circle me-2"></i>
+                    <span id="successMessage"></span>
+                </div>
+
+                <!-- Forum Management Content -->
+                <div id="forumContent" class="d-none">
+                    <div class="row">
+                        <!-- Forum Channel Info -->
+                        <div class="col-md-12 mb-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>Forum Channel Information</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <strong>Channel Name:</strong> <span id="forumChannelName" class="text-muted">Loading...</span>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <strong>Channel ID:</strong> <span id="forumChannelId" class="text-muted">1336076303098450003</span>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-md-6">
+                                            <strong>Total Threads:</strong> <span id="totalThreads" class="badge bg-primary">0</span>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <strong>Mapped Categories:</strong> <span id="mappedCategories" class="badge bg-success">0</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Category Thread Mappings -->
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0"><i class="fas fa-link me-2"></i>Category Thread Assignments</h5>
+                                    <div>
+                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="refreshData()">
+                                            <i class="fas fa-sync-alt me-1"></i>Refresh
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div id="categoryMappings">
+                                        <!-- Dynamic content will be loaded here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Unmapped Categories -->
+                    <div class="row mt-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0 text-warning"><i class="fas fa-exclamation-triangle me-2"></i>Unmapped Categories</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="unmappedCategories" class="text-muted">
+                                        All categories are properly mapped.
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Available Threads -->
+                    <div class="row mt-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-list me-2"></i>Available Forum Threads</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Thread Name</th>
+                                                    <th>Thread ID</th>
+                                                    <th>Status</th>
+                                                    <th>Assigned Categories</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="threadsTable">
+                                                <!-- Dynamic content will be loaded here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='forum_management.js') }}"></script>
+</body>
+</html>

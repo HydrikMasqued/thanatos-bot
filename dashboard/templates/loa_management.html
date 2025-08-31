@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOA Management - Thanatos Admin Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/dashboard.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-skull"></i> Thanatos Admin
+            </a>
+            
+            <div class="navbar-nav ms-auto">
+                <div class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                        {% if user.avatar %}
+                            <img src="https://cdn.discordapp.com/avatars/{{ user.id }}/{{ user.avatar }}.png?size=32" 
+                                 class="rounded-circle me-2" width="32" height="32">
+                        {% else %}
+                            <i class="fas fa-user-circle me-2"></i>
+                        {% endif %}
+                        {{ user.username }}
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar">
+                <div class="position-sticky pt-3">
+                    <ul class="nav nav-pills flex-column mb-auto">
+                        <li class="nav-item">
+                            <a href="{{ url_for('index') }}" class="nav-link">
+                                <i class="fas fa-tachometer-alt"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('forum_management') }}" class="nav-link">
+                                <i class="fas fa-comments"></i> Forum Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('loa_management') }}" class="nav-link active">
+                                <i class="fas fa-calendar-alt"></i> LOA Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('mass_dm') }}" class="nav-link">
+                                <i class="fas fa-envelope"></i> Mass Role DM
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ url_for('audit_management') }}" class="nav-link">
+                                <i class="fas fa-clipboard-list"></i> Audit Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-users"></i> Member Management
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-box"></i> Contributions
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="#" class="nav-link">
+                                <i class="fas fa-cog"></i> Settings
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2"><i class="fas fa-calendar-alt"></i> LOA Management</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-primary" onclick="refreshLOAs()">
+                            <i class="fas fa-sync"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <!-- Alert container for API responses -->
+                <div id="alert-container"></div>
+
+                <!-- LOA Stats -->
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="card bg-info text-white">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h5 class="card-title">Active LOAs</h5>
+                                        <h2 id="active-count">0</h2>
+                                    </div>
+                                    <div class="align-self-center">
+                                        <i class="fas fa-calendar-alt fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-warning text-white">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h5 class="card-title">Expiring Soon</h5>
+                                        <h2 id="expiring-count">0</h2>
+                                    </div>
+                                    <div class="align-self-center">
+                                        <i class="fas fa-exclamation-triangle fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-success text-white">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between">
+                                    <div>
+                                        <h5 class="card-title">Total Managed</h5>
+                                        <h2 id="total-count">0</h2>
+                                    </div>
+                                    <div class="align-self-center">
+                                        <i class="fas fa-users fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active LOAs Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-list"></i> Active Leave of Absence Records</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="loa-table">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>Member</th>
+                                        <th>Duration</th>
+                                        <th>Started</th>
+                                        <th>Ends</th>
+                                        <th>Time Remaining</th>
+                                        <th>Reason</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="loa-table-body">
+                                    <tr>
+                                        <td colspan="7" class="text-center">
+                                            <div class="spinner-border" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Force End LOA Confirmation Modal -->
+    <div class="modal fade" id="endLoaModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title"><i class="fas fa-exclamation-triangle"></i> Confirm Force End LOA</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="modal-loa-details"></div>
+                    <div class="alert alert-warning mt-3">
+                        <strong>⚠️ Warning:</strong> This action will immediately end the member's LOA and mark them as active. 
+                        Notifications will be sent to relevant parties. This action cannot be undone.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirm-end-loa">
+                        <i class="fas fa-times-circle"></i> Force End LOA
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        let currentLoaId = null;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            loadActiveLOAs();
+            
+            // Set up force end confirmation
+            document.getElementById('confirm-end-loa').addEventListener('click', function() {
+                if (currentLoaId) {
+                    forceEndLOA(currentLoaId);
+                }
+            });
+        });
+        
+        async function loadActiveLOAs() {
+            try {
+                const response = await fetch('/api/loa/active');
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayLOAs(data.loas);
+                    updateStats(data.loas);
+                } else {
+                    showAlert('danger', 'Failed to load LOAs: ' + data.error);
+                }
+            } catch (error) {
+                showAlert('danger', 'Error loading LOAs: ' + error.message);
+            }
+        }
+        
+        function displayLOAs(loas) {
+            const tbody = document.getElementById('loa-table-body');
+            
+            if (loas.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No active LOAs found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = loas.map(loa => {
+                const startDate = new Date(loa.start_time);
+                const endDate = new Date(loa.end_time);
+                const now = new Date();
+                
+                // Calculate time remaining
+                const timeRemaining = endDate - now;
+                let remainingText = 'Expired';
+                let statusClass = 'text-danger';
+                
+                if (timeRemaining > 0) {
+                    const days = Math.floor(timeRemaining / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((timeRemaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    
+                    if (days > 0) {
+                        remainingText = `${days}d ${hours}h`;
+                        statusClass = days <= 2 ? 'text-warning' : 'text-success';
+                    } else if (hours > 0) {
+                        remainingText = `${hours}h`;
+                        statusClass = 'text-warning';
+                    } else {
+                        remainingText = '<1h';
+                        statusClass = 'text-danger';
+                    }
+                }
+                
+                return `
+                    <tr>
+                        <td>
+                            <strong>${loa.discord_name || 'Unknown'}</strong>
+                            ${loa.discord_username ? `<br><small class="text-muted">@${loa.discord_username}</small>` : ''}
+                        </td>
+                        <td><span class="badge bg-primary">${loa.duration}</span></td>
+                        <td><small>${startDate.toLocaleDateString()}<br>${startDate.toLocaleTimeString()}</small></td>
+                        <td><small>${endDate.toLocaleDateString()}<br>${endDate.toLocaleTimeString()}</small></td>
+                        <td><span class="${statusClass}"><strong>${remainingText}</strong></span></td>
+                        <td>
+                            <div style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                ${loa.reason.length > 100 ? loa.reason.substring(0, 100) + '...' : loa.reason}
+                            </div>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" onclick="showEndLoaModal(${loa.id}, '${loa.discord_name || 'Unknown'}', '${loa.duration}', '${loa.reason.replace(/'/g, "\\'")}')">
+                                <i class="fas fa-times"></i> Force End
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        function updateStats(loas) {
+            const activeCount = loas.length;
+            let expiringCount = 0;
+            const now = new Date();
+            
+            loas.forEach(loa => {
+                const endDate = new Date(loa.end_time);
+                const timeRemaining = endDate - now;
+                const hoursRemaining = timeRemaining / (1000 * 60 * 60);
+                
+                if (hoursRemaining <= 48 && hoursRemaining > 0) { // Expiring within 48 hours
+                    expiringCount++;
+                }
+            });
+            
+            document.getElementById('active-count').textContent = activeCount;
+            document.getElementById('expiring-count').textContent = expiringCount;
+            document.getElementById('total-count').textContent = activeCount;
+        }
+        
+        function showEndLoaModal(loaId, memberName, duration, reason) {
+            currentLoaId = loaId;
+            
+            document.getElementById('modal-loa-details').innerHTML = `
+                <h6>LOA Details:</h6>
+                <ul class="list-unstyled">
+                    <li><strong>Member:</strong> ${memberName}</li>
+                    <li><strong>Duration:</strong> ${duration}</li>
+                    <li><strong>Reason:</strong> ${reason}</li>
+                </ul>
+            `;
+            
+            const modal = new bootstrap.Modal(document.getElementById('endLoaModal'));
+            modal.show();
+        }
+        
+        async function forceEndLOA(loaId) {
+            try {
+                const response = await fetch(`/api/loa/${loaId}/end`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showAlert('success', data.message);
+                    // Close modal
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('endLoaModal'));
+                    modal.hide();
+                    // Refresh the LOA list
+                    setTimeout(() => loadActiveLOAs(), 500);
+                } else {
+                    showAlert('danger', 'Failed to end LOA: ' + data.error);
+                }
+            } catch (error) {
+                showAlert('danger', 'Error ending LOA: ' + error.message);
+            }
+        }
+        
+        function refreshLOAs() {
+            loadActiveLOAs();
+            showAlert('info', 'LOA list refreshed');
+        }
+        
+        function showAlert(type, message) {
+            const alertContainer = document.getElementById('alert-container');
+            const alertId = 'alert-' + Date.now();
+            
+            const alertHTML = `
+                <div id="${alertId}" class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            alertContainer.insertAdjacentHTML('beforeend', alertHTML);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                const alert = document.getElementById(alertId);
+                if (alert) {
+                    const bsAlert = bootstrap.Alert.getOrCreateInstance(alert);
+                    bsAlert.close();
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
