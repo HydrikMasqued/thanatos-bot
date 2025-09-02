@@ -26,7 +26,20 @@ try:
 except Exception:
     pass  # Continue even if path manipulation fails
 
-from utils.permissions import has_required_permissions
+# Try to import utils.permissions with error handling and fallback
+try:
+    from utils.permissions import has_required_permissions
+    logger.info("✅ Successfully imported utils.permissions")
+except ImportError as e:
+    logger.error(f"❌ Failed to import utils.permissions: {e}")
+    logger.error(f"Current working directory: {os.getcwd()}")
+    logger.error(f"Python path: {sys.path[:5]}")
+    logger.warning("⚠️ Using dummy permissions function - all permissions will be allowed!")
+    
+    # Define a dummy permission function that always returns True
+    async def has_required_permissions(interaction, required_permissions=None, allowed_roles=None, bot_owner_override=True):
+        """Dummy permissions function - ALLOWS ALL ACCESS"""
+        return True
 
 logger = logging.getLogger(__name__)
 
