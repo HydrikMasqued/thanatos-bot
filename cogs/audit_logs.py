@@ -7,6 +7,7 @@ import io
 import csv
 import json
 from utils.contribution_audit_helpers import ContributionAuditHelpers
+from utils.smart_time_formatter import SmartTimeFormatter
 
 class AuditLogsPaginator(discord.ui.View):
     def __init__(self, bot, guild_id: int, events: List[dict], per_page: int = 10):
@@ -81,8 +82,11 @@ class AuditLogsPaginator(discord.ui.View):
                     event_desc += f"\n**Notes:** {event['notes'][:100]}{'...' if len(event['notes']) > 100 else ''}"
             
             # Add timestamp and actor
-            occurred_at = datetime.fromisoformat(event['occurred_at'].replace('T', ' ').replace('Z', ''))
-            event_desc += f"\n**When:** {occurred_at.strftime('%Y-%m-%d %H:%M UTC')}"
+            try:
+                occurred_at = datetime.fromisoformat(event['occurred_at'].replace('T', ' ').replace('Z', ''))
+                event_desc += f"\n**When:** {SmartTimeFormatter.format_discord_timestamp(occurred_at, 'f')}"
+            except:
+                event_desc += f"\n**When:** {event['occurred_at']}"
             event_desc += f"\n**Actor ID:** {event['actor_id']}"
             
             embed.add_field(
@@ -187,8 +191,8 @@ class AuditLogsPaginator(discord.ui.View):
             # Parse timestamp details
             try:
                 dt = datetime.fromisoformat(event['occurred_at'].replace('T', ' ').replace('Z', ''))
-                date_str = dt.strftime("%Y-%m-%d")
-                time_str = dt.strftime("%H:%M:%S")
+                date_str = SmartTimeFormatter.format_discord_timestamp(dt, 'd')
+                time_str = SmartTimeFormatter.format_discord_timestamp(dt, 't')
             except:
                 date_str = "Unknown"
                 time_str = "Unknown"

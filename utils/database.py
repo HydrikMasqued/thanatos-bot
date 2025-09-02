@@ -13,7 +13,9 @@ class DatabaseManager:
     def __init__(self, db_path: str = "data/thanatos.db"):
         self.db_path = db_path
         # Ensure data directory exists
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        dir_path = os.path.dirname(db_path)
+        if dir_path:  # Only create directory if there is one to create
+            os.makedirs(dir_path, exist_ok=True)
         
         # Connection management
         self._connection_lock = asyncio.Lock()
@@ -283,6 +285,165 @@ class DatabaseManager:
                     is_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(guild_id, category_name)
+                )
+            ''')
+            
+            # Event attendance table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS event_attendance (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_id INTEGER NOT NULL,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    discord_name TEXT NOT NULL,
+                    discord_username TEXT,
+                    rank TEXT,
+                    attendance_status TEXT NOT NULL CHECK(attendance_status IN ('present', 'absent', 'late')),
+                    arrival_time TIMESTAMP,
+                    notes TEXT,
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    recorded_by_id INTEGER,
+                    UNIQUE(event_id, user_id),
+                    FOREIGN KEY (event_id) REFERENCES events (id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # Dues tracking tables
+            # Dues periods table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS dues_periods (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    period_name TEXT NOT NULL,
+                    description TEXT,
+                    due_amount REAL NOT NULL DEFAULT 0.0,
+                    due_date TIMESTAMP,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by_id INTEGER NOT NULL,
+                    UNIQUE(guild_id, period_name)
+                )
+            ''')
+            
+            # Member dues payments table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS dues_payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    dues_period_id INTEGER NOT NULL,
+                    amount_paid REAL NOT NULL DEFAULT 0.0,
+                    payment_date TIMESTAMP,
+                    payment_method TEXT,
+                    payment_status TEXT DEFAULT 'unpaid' CHECK(payment_status IN ('paid', 'unpaid', 'partial', 'exempt')),
+                    notes TEXT,
+                    is_exempt BOOLEAN DEFAULT FALSE,
+                    updated_by_id INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, user_id, dues_period_id),
+                    FOREIGN KEY (dues_period_id) REFERENCES dues_periods (id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # Dues payment history table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS dues_payment_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    dues_payment_id INTEGER NOT NULL,
+                    action_type TEXT NOT NULL,
+                    old_amount REAL,
+                    new_amount REAL,
+                    old_status TEXT,
+                    new_status TEXT,
+                    old_payment_method TEXT,
+                    new_payment_method TEXT,
+                    old_notes TEXT,
+                    new_notes TEXT,
+                    changed_by_id INTEGER NOT NULL,
+                    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (dues_payment_id) REFERENCES dues_payments (id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # Prospect management tables
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS prospects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    sponsor_id INTEGER NOT NULL,
+                    prospect_role_id INTEGER,
+                    sponsor_role_id INTEGER,
+                    start_date TIMESTAMP NOT NULL,
+                    end_date TIMESTAMP,
+                    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'patched', 'dropped', 'archived')),
+                    strikes INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(guild_id, user_id)
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS prospect_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    prospect_id INTEGER NOT NULL,
+                    assigned_by_id INTEGER NOT NULL,
+                    task_name TEXT NOT NULL,
+                    task_description TEXT NOT NULL,
+                    due_date TIMESTAMP,
+                    status TEXT DEFAULT 'assigned' CHECK(status IN ('assigned', 'completed', 'failed', 'overdue')),
+                    completed_date TIMESTAMP,
+                    completed_by_id INTEGER,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (prospect_id) REFERENCES prospects (id) ON DELETE CASCADE
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS prospect_notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    prospect_id INTEGER NOT NULL,
+                    author_id INTEGER NOT NULL,
+                    note_text TEXT NOT NULL,
+                    is_strike BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (prospect_id) REFERENCES prospects (id) ON DELETE CASCADE
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS prospect_votes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id INTEGER NOT NULL,
+                    prospect_id INTEGER NOT NULL,
+                    started_by_id INTEGER NOT NULL,
+                    vote_type TEXT DEFAULT 'patch' CHECK(vote_type IN ('patch', 'drop')),
+                    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'completed', 'cancelled')),
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    ended_by_id INTEGER,
+                    result TEXT,
+                    FOREIGN KEY (prospect_id) REFERENCES prospects (id) ON DELETE CASCADE
+                )
+            ''')
+            
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS prospect_vote_responses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    vote_id INTEGER NOT NULL,
+                    voter_id INTEGER NOT NULL,
+                    vote_response TEXT NOT NULL CHECK(vote_response IN ('yes', 'no', 'abstain')),
+                    voted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (vote_id) REFERENCES prospect_votes (id) ON DELETE CASCADE,
+                    UNIQUE(vote_id, voter_id)
                 )
             ''')
             
@@ -1610,7 +1771,16 @@ class DatabaseManager:
             ''', (event_id,))
             
             row = await cursor.fetchone()
-            return dict(row) if row else None
+            if row:
+                event = dict(row)
+                # Convert event_date string to datetime object if needed
+                if event.get('event_date') and isinstance(event['event_date'], str):
+                    try:
+                        event['event_date'] = datetime.fromisoformat(event['event_date'].replace('Z', '+00:00'))
+                    except ValueError:
+                        pass  # Keep as string if conversion fails
+                return event
+            return None
             
         except Exception as e:
             logger.error(f"Failed to get event {event_id}: {e}")
@@ -1636,7 +1806,17 @@ class DatabaseManager:
             ''', (guild_id,))
             
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            events = []
+            for row in rows:
+                event = dict(row)
+                # Convert event_date string to datetime object if needed
+                if event.get('event_date') and isinstance(event['event_date'], str):
+                    try:
+                        event['event_date'] = datetime.fromisoformat(event['event_date'].replace('Z', '+00:00'))
+                    except ValueError:
+                        pass  # Keep as string if conversion fails
+                events.append(event)
+            return events
             
         except Exception as e:
             logger.error(f"Failed to get active events for guild {guild_id}: {e}")
@@ -1942,4 +2122,1002 @@ class DatabaseManager:
             
         except Exception as e:
             logger.error(f"Failed to get events by date range for guild {guild_id}: {e}")
+            return []
+    
+    async def cancel_event(self, event_id: int) -> bool:
+        """Cancel an event by marking it as inactive"""
+        try:
+            conn = await self._get_shared_connection()
+            cursor = await conn.execute(
+                'UPDATE events SET is_active = FALSE WHERE id = ?',
+                (event_id,)
+            )
+            
+            rows_updated = cursor.rowcount
+            await self._execute_commit()
+            
+            if rows_updated > 0:
+                logger.info(f"Successfully cancelled event {event_id}")
+                return True
+            else:
+                logger.warning(f"No event found with ID {event_id} to cancel")
+                return False
+            
+        except Exception as e:
+            logger.error(f"Failed to cancel event {event_id}: {e}")
+            return False
+    
+    async def get_event_invited_members(self, event_id: int) -> List[int]:
+        """Get list of user IDs who were invited to an event"""
+        try:
+            conn = await self._get_shared_connection()
+            cursor = await conn.execute(
+                'SELECT DISTINCT user_id FROM event_invitations WHERE event_id = ?',
+                (event_id,)
+            )
+            
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get invited members for event {event_id}: {e}")
+            return []
+    
+    async def finish_event(self, event_id: int) -> bool:
+        """Mark an event as finished/completed"""
+        try:
+            conn = await self._get_shared_connection()
+            cursor = await conn.execute(
+                'UPDATE events SET is_active = FALSE, updated_at = ? WHERE id = ? AND is_active = TRUE',
+                (datetime.now(), event_id)
+            )
+            
+            rows_updated = cursor.rowcount
+            await self._execute_commit()
+            
+            if rows_updated > 0:
+                logger.info(f"Successfully finished event {event_id}")
+                return True
+            else:
+                logger.warning(f"No active event found with ID {event_id} to finish")
+                return False
+            
+        except Exception as e:
+            logger.error(f"Failed to finish event {event_id}: {e}")
+            return False
+    
+    async def record_attendance(self, event_id: int, guild_id: int, user_id: int, 
+                              attendance_status: str = 'present', arrival_time: datetime = None, 
+                              notes: str = None, recorded_by_id: int = None) -> bool:
+        """Record attendance for an event"""
+        try:
+            # Get member info
+            member = await self.get_member(guild_id, user_id)
+            if not member:
+                # Try to get basic user info from invitations or RSVPs
+                conn = await self._get_shared_connection()
+                cursor = await conn.execute(
+                    'SELECT user_id FROM event_invitations WHERE event_id = ? AND user_id = ?',
+                    (event_id, user_id)
+                )
+                if not await cursor.fetchone():
+                    logger.warning(f"User {user_id} not found in members or event invitations for event {event_id}")
+                    return False
+                
+                discord_name = f"User {user_id}"  # Fallback name
+                discord_username = None
+                rank = "Unknown"
+            else:
+                discord_name = member['discord_name']
+                discord_username = member.get('discord_username')
+                rank = member.get('rank', 'Member')
+            
+            conn = await self._get_shared_connection()
+            await conn.execute('''
+                INSERT INTO event_attendance (event_id, guild_id, user_id, discord_name, 
+                                             discord_username, rank, attendance_status, 
+                                             arrival_time, notes, recorded_by_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(event_id, user_id) 
+                DO UPDATE SET attendance_status = ?, arrival_time = ?, notes = ?, 
+                              recorded_at = CURRENT_TIMESTAMP, recorded_by_id = ?
+            ''', (event_id, guild_id, user_id, discord_name, discord_username, rank, 
+                  attendance_status, arrival_time, notes, recorded_by_id,
+                  attendance_status, arrival_time, notes, recorded_by_id))
+            
+            await self._execute_commit()
+            logger.info(f"Recorded attendance for user {user_id} at event {event_id}: {attendance_status}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to record attendance for user {user_id} at event {event_id}: {e}")
+            return False
+    
+    async def get_event_attendance(self, event_id: int) -> List[Dict]:
+        """Get all attendance records for an event"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT a.*, recorder.discord_name as recorded_by_name
+                FROM event_attendance a
+                LEFT JOIN members recorder ON a.guild_id = recorder.guild_id AND a.recorded_by_id = recorder.user_id
+                WHERE a.event_id = ?
+                ORDER BY a.rank, a.discord_name
+            ''', (event_id,))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get attendance for event {event_id}: {e}")
+            return []
+    
+    async def get_member_attendance_history(self, guild_id: int, user_id: int, limit: int = 50) -> List[Dict]:
+        """Get attendance history for a specific member"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT a.*, e.event_name, e.event_date, e.category,
+                       recorder.discord_name as recorded_by_name
+                FROM event_attendance a
+                JOIN events e ON a.event_id = e.id
+                LEFT JOIN members recorder ON a.guild_id = recorder.guild_id AND a.recorded_by_id = recorder.user_id
+                WHERE a.guild_id = ? AND a.user_id = ?
+                ORDER BY e.event_date DESC
+                LIMIT ?
+            ''', (guild_id, user_id, limit))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get attendance history for user {user_id}: {e}")
+            return []
+    
+    async def get_attendance_summary(self, guild_id: int, days: int = 30) -> Dict:
+        """Get attendance summary statistics for a period"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            
+            # Get attendance stats for the period
+            cursor = await conn.execute('''
+                SELECT 
+                    COUNT(DISTINCT a.event_id) as events_with_attendance,
+                    COUNT(a.id) as total_attendance_records,
+                    COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present_count,
+                    COUNT(CASE WHEN a.attendance_status = 'absent' THEN 1 END) as absent_count,
+                    COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late_count,
+                    COUNT(DISTINCT a.user_id) as unique_attendees
+                FROM event_attendance a
+                JOIN events e ON a.event_id = e.id
+                WHERE a.guild_id = ? AND e.event_date >= datetime('now', '-{} days')
+            '''.format(days), (guild_id,))
+            
+            stats = dict(await cursor.fetchone())
+            
+            # Get top attendees
+            cursor = await conn.execute('''
+                SELECT a.user_id, a.discord_name, a.rank,
+                       COUNT(CASE WHEN a.attendance_status = 'present' THEN 1 END) as present_count,
+                       COUNT(CASE WHEN a.attendance_status = 'late' THEN 1 END) as late_count,
+                       COUNT(a.id) as total_events
+                FROM event_attendance a
+                JOIN events e ON a.event_id = e.id
+                WHERE a.guild_id = ? AND e.event_date >= datetime('now', '-{} days')
+                GROUP BY a.user_id
+                ORDER BY present_count + late_count DESC, present_count DESC
+                LIMIT 10
+            '''.format(days), (guild_id,))
+            
+            top_attendees = [dict(row) for row in await cursor.fetchall()]
+            
+            return {
+                'period_days': days,
+                'events_with_attendance': stats['events_with_attendance'],
+                'total_attendance_records': stats['total_attendance_records'],
+                'present_count': stats['present_count'],
+                'absent_count': stats['absent_count'],
+                'late_count': stats['late_count'],
+                'unique_attendees': stats['unique_attendees'],
+                'top_attendees': top_attendees
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get attendance summary for guild {guild_id}: {e}")
+            return {}
+    
+    # Dues Tracking Methods
+    async def create_dues_period(self, guild_id: int, period_name: str, description: str = None, 
+                               due_amount: float = 0.0, due_date: datetime = None, 
+                               created_by_id: int = None) -> int:
+        """Create a new dues period"""
+        try:
+            conn = await self._get_shared_connection()
+            cursor = await conn.execute('''
+                INSERT INTO dues_periods (guild_id, period_name, description, due_amount, due_date, created_by_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (guild_id, period_name, description, due_amount, due_date, created_by_id))
+            
+            period_id = cursor.lastrowid
+            await self._execute_commit()
+            
+            logger.info(f"Created dues period '{period_name}' (ID: {period_id}) for guild {guild_id}")
+            return period_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create dues period for guild {guild_id}: {e}")
+            raise
+    
+    async def get_active_dues_periods(self, guild_id: int) -> List[Dict]:
+        """Get all active dues periods for a guild"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT dp.*, m.discord_name as created_by_name
+                FROM dues_periods dp
+                LEFT JOIN members m ON dp.guild_id = m.guild_id AND dp.created_by_id = m.user_id
+                WHERE dp.guild_id = ? AND dp.is_active = TRUE
+                ORDER BY dp.due_date DESC, dp.created_at DESC
+            ''', (guild_id,))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get active dues periods for guild {guild_id}: {e}")
+            return []
+    
+    async def get_dues_period_by_id(self, period_id: int) -> Optional[Dict]:
+        """Get a specific dues period by ID"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT dp.*, m.discord_name as created_by_name
+                FROM dues_periods dp
+                LEFT JOIN members m ON dp.guild_id = m.guild_id AND dp.created_by_id = m.user_id
+                WHERE dp.id = ?
+            ''', (period_id,))
+            
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+            
+        except Exception as e:
+            logger.error(f"Failed to get dues period {period_id}: {e}")
+            return None
+    
+    async def update_dues_payment(self, guild_id: int, user_id: int, dues_period_id: int, 
+                                amount_paid: float = 0.0, payment_date: datetime = None, 
+                                payment_method: str = None, payment_status: str = 'unpaid', 
+                                notes: str = None, is_exempt: bool = False, 
+                                updated_by_id: int = None) -> int:
+        """Update or create a dues payment record"""
+        try:
+            conn = await self._get_shared_connection()
+            
+            # Get existing payment record if it exists
+            cursor = await conn.execute('''
+                SELECT * FROM dues_payments 
+                WHERE guild_id = ? AND user_id = ? AND dues_period_id = ?
+            ''', (guild_id, user_id, dues_period_id))
+            existing = await cursor.fetchone()
+            
+            if existing:
+                # Update existing record and log history
+                old_amount = existing[4]  # amount_paid
+                old_status = existing[7]  # payment_status
+                old_method = existing[6]  # payment_method
+                old_notes = existing[8]   # notes
+                
+                cursor = await conn.execute('''
+                    UPDATE dues_payments 
+                    SET amount_paid = ?, payment_date = ?, payment_method = ?, 
+                        payment_status = ?, notes = ?, is_exempt = ?, 
+                        updated_by_id = ?, updated_at = ?
+                    WHERE guild_id = ? AND user_id = ? AND dues_period_id = ?
+                ''', (amount_paid, payment_date, payment_method, payment_status, 
+                      notes, is_exempt, updated_by_id, datetime.now(),
+                      guild_id, user_id, dues_period_id))
+                
+                payment_id = existing[0]  # id
+                
+                # Log the change to history
+                await conn.execute('''
+                    INSERT INTO dues_payment_history 
+                    (guild_id, dues_payment_id, action_type, old_amount, new_amount, 
+                     old_status, new_status, old_payment_method, new_payment_method,
+                     old_notes, new_notes, changed_by_id)
+                    VALUES (?, ?, 'updated', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (guild_id, payment_id, old_amount, amount_paid, 
+                      old_status, payment_status, old_method, payment_method,
+                      old_notes, notes, updated_by_id))
+            else:
+                # Create new payment record
+                cursor = await conn.execute('''
+                    INSERT INTO dues_payments 
+                    (guild_id, user_id, dues_period_id, amount_paid, payment_date, 
+                     payment_method, payment_status, notes, is_exempt, updated_by_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (guild_id, user_id, dues_period_id, amount_paid, payment_date,
+                      payment_method, payment_status, notes, is_exempt, updated_by_id))
+                
+                payment_id = cursor.lastrowid
+                
+                # Log the creation to history
+                await conn.execute('''
+                    INSERT INTO dues_payment_history 
+                    (guild_id, dues_payment_id, action_type, new_amount, new_status, 
+                     new_payment_method, new_notes, changed_by_id)
+                    VALUES (?, ?, 'created', ?, ?, ?, ?, ?)
+                ''', (guild_id, payment_id, amount_paid, payment_status, 
+                      payment_method, notes, updated_by_id))
+            
+            await self._execute_commit()
+            logger.info(f"Updated dues payment for user {user_id} in period {dues_period_id}")
+            return payment_id
+            
+        except Exception as e:
+            logger.error(f"Failed to update dues payment: {e}")
+            raise
+    
+    async def get_dues_payments_for_period(self, guild_id: int, dues_period_id: int) -> List[Dict]:
+        """Get all dues payments for a specific period with member information"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT dp.*, m.discord_name, m.discord_username, m.rank,
+                       updater.discord_name as updated_by_name,
+                       per.period_name, per.due_amount
+                FROM dues_payments dp
+                LEFT JOIN members m ON dp.guild_id = m.guild_id AND dp.user_id = m.user_id
+                LEFT JOIN members updater ON dp.guild_id = updater.guild_id AND dp.updated_by_id = updater.user_id
+                LEFT JOIN dues_periods per ON dp.dues_period_id = per.id
+                WHERE dp.guild_id = ? AND dp.dues_period_id = ?
+                ORDER BY m.rank, m.discord_name
+            ''', (guild_id, dues_period_id))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get dues payments for period {dues_period_id}: {e}")
+            return []
+    
+    async def get_all_dues_payments_with_members(self, guild_id: int, dues_period_id: int) -> List[Dict]:
+        """Get all active members with their dues payment status for a period"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT m.*, 
+                       dp.amount_paid, dp.payment_date, dp.payment_method, 
+                       dp.payment_status, dp.notes, dp.is_exempt,
+                       updater.discord_name as updated_by_name,
+                       per.period_name, per.due_amount, per.due_date
+                FROM members m
+                LEFT JOIN dues_payments dp ON m.guild_id = dp.guild_id AND m.user_id = dp.user_id AND dp.dues_period_id = ?
+                LEFT JOIN members updater ON dp.updated_by_id = updater.user_id AND dp.guild_id = updater.guild_id
+                LEFT JOIN dues_periods per ON per.id = ? AND per.guild_id = m.guild_id
+                WHERE m.guild_id = ? AND m.status = 'Active'
+                ORDER BY 
+                    CASE m.rank
+                        WHEN 'President' THEN 1
+                        WHEN 'Vice President' THEN 2
+                        WHEN 'Sergeant At Arms' THEN 3
+                        WHEN 'Secretary' THEN 4
+                        WHEN 'Treasurer' THEN 5
+                        WHEN 'Road Captain' THEN 6
+                        WHEN 'Tailgunner' THEN 7
+                        WHEN 'Enforcer' THEN 8
+                        WHEN 'Full Patch' THEN 9
+                        WHEN 'Nomad' THEN 10
+                        ELSE 999
+                    END,
+                    m.discord_name
+            ''', (dues_period_id, dues_period_id, guild_id))
+            
+            rows = await cursor.fetchall()
+            result = []
+            for row in rows:
+                member_data = dict(row)
+                # Set default values if no payment record exists
+                if member_data['amount_paid'] is None:
+                    member_data['amount_paid'] = 0.0
+                if member_data['payment_status'] is None:
+                    member_data['payment_status'] = 'unpaid'
+                if member_data['is_exempt'] is None:
+                    member_data['is_exempt'] = False
+                result.append(member_data)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to get all dues payments with members: {e}")
+            return []
+    
+    async def get_dues_payment_history(self, guild_id: int, dues_payment_id: int) -> List[Dict]:
+        """Get payment history for a specific dues payment"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT dph.*, m.discord_name as changed_by_name
+                FROM dues_payment_history dph
+                LEFT JOIN members m ON dph.guild_id = m.guild_id AND dph.changed_by_id = m.user_id
+                WHERE dph.guild_id = ? AND dph.dues_payment_id = ?
+                ORDER BY dph.changed_at DESC
+            ''', (guild_id, dues_payment_id))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get payment history: {e}")
+            return []
+    
+    async def get_dues_collection_summary(self, guild_id: int, dues_period_id: int) -> Dict:
+        """Get collection summary for a dues period"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            
+            # Get period info
+            cursor = await conn.execute('''
+                SELECT * FROM dues_periods WHERE id = ? AND guild_id = ?
+            ''', (dues_period_id, guild_id))
+            period = await cursor.fetchone()
+            
+            if not period:
+                return {}
+            
+            period = dict(period)
+            
+            # Get payment statistics
+            cursor = await conn.execute('''
+                SELECT 
+                    COUNT(DISTINCT m.user_id) as total_members,
+                    COUNT(dp.id) as members_with_records,
+                    COUNT(CASE WHEN dp.payment_status = 'paid' THEN 1 END) as paid_count,
+                    COUNT(CASE WHEN dp.payment_status = 'unpaid' THEN 1 END) as unpaid_count,
+                    COUNT(CASE WHEN dp.payment_status = 'partial' THEN 1 END) as partial_count,
+                    COUNT(CASE WHEN dp.is_exempt = TRUE THEN 1 END) as exempt_count,
+                    COALESCE(SUM(dp.amount_paid), 0) as total_collected,
+                    COALESCE(SUM(CASE WHEN dp.is_exempt = FALSE THEN ? ELSE 0 END), 0) as total_expected
+                FROM members m
+                LEFT JOIN dues_payments dp ON m.guild_id = dp.guild_id AND m.user_id = dp.user_id AND dp.dues_period_id = ?
+                WHERE m.guild_id = ? AND m.status = 'Active'
+            ''', (period['due_amount'], dues_period_id, guild_id))
+            
+            stats = dict(await cursor.fetchone())
+            
+            # Calculate members without records (default to unpaid)
+            members_without_records = stats['total_members'] - stats['members_with_records']
+            stats['unpaid_count'] += members_without_records
+            
+            # Calculate collection percentage
+            collection_percentage = 0.0
+            if stats['total_expected'] > 0:
+                collection_percentage = (stats['total_collected'] / stats['total_expected']) * 100
+            
+            return {
+                'period': period,
+                'total_members': stats['total_members'],
+                'paid_count': stats['paid_count'],
+                'unpaid_count': stats['unpaid_count'],
+                'partial_count': stats['partial_count'],
+                'exempt_count': stats['exempt_count'],
+                'total_collected': stats['total_collected'],
+                'total_expected': stats['total_expected'],
+                'collection_percentage': round(collection_percentage, 1),
+                'outstanding_amount': max(0, stats['total_expected'] - stats['total_collected'])
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get dues collection summary: {e}")
+            return {}
+    
+    async def reset_dues_period(self, guild_id: int, dues_period_id: int, reset_by_id: int) -> bool:
+        """Reset all payments for a dues period (manual reset)"""
+        try:
+            conn = await self._get_shared_connection()
+            
+            # Delete all payments for this period
+            cursor = await conn.execute('''
+                DELETE FROM dues_payments 
+                WHERE guild_id = ? AND dues_period_id = ?
+            ''', (guild_id, dues_period_id))
+            
+            deleted_count = cursor.rowcount
+            await self._execute_commit()
+            
+            logger.info(f"Reset dues period {dues_period_id} - deleted {deleted_count} payment records by user {reset_by_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to reset dues period {dues_period_id}: {e}")
+            return False
+    
+    # Prospect Management Methods
+    async def create_prospect(self, guild_id: int, user_id: int, sponsor_id: int, 
+                            prospect_role_id: int = None, sponsor_role_id: int = None) -> int:
+        """Create a new prospect record"""
+        try:
+            conn = await self._get_shared_connection()
+            cursor = await conn.execute('''
+                INSERT INTO prospects (guild_id, user_id, sponsor_id, prospect_role_id, sponsor_role_id, start_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (guild_id, user_id, sponsor_id, prospect_role_id, sponsor_role_id, datetime.now()))
+            
+            prospect_id = cursor.lastrowid
+            await self._execute_commit()
+            
+            logger.info(f"Created prospect record for user {user_id} sponsored by {sponsor_id} in guild {guild_id}")
+            return prospect_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create prospect: {e}")
+            raise
+    
+    async def get_prospect_by_user(self, guild_id: int, user_id: int) -> Optional[Dict]:
+        """Get prospect record by user ID"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT p.*, 
+                       sponsor.discord_name as sponsor_name,
+                       prospect.discord_name as prospect_name
+                FROM prospects p
+                LEFT JOIN members sponsor ON p.guild_id = sponsor.guild_id AND p.sponsor_id = sponsor.user_id
+                LEFT JOIN members prospect ON p.guild_id = prospect.guild_id AND p.user_id = prospect.user_id
+                WHERE p.guild_id = ? AND p.user_id = ?
+            ''', (guild_id, user_id))
+            
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+            
+        except Exception as e:
+            logger.error(f"Failed to get prospect by user {user_id}: {e}")
+            return None
+    
+    async def get_active_prospects(self, guild_id: int) -> List[Dict]:
+        """Get all active prospects for a guild"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT p.*,
+                       sponsor.discord_name as sponsor_name,
+                       prospect.discord_name as prospect_name,
+                       COUNT(t.id) as total_tasks,
+                       COUNT(CASE WHEN t.status = 'completed' THEN 1 END) as completed_tasks,
+                       COUNT(CASE WHEN t.status = 'failed' THEN 1 END) as failed_tasks,
+                       COUNT(n.id) as total_notes,
+                       COUNT(CASE WHEN n.is_strike = TRUE THEN 1 END) as strike_count
+                FROM prospects p
+                LEFT JOIN members sponsor ON p.guild_id = sponsor.guild_id AND p.sponsor_id = sponsor.user_id
+                LEFT JOIN members prospect ON p.guild_id = prospect.guild_id AND p.user_id = prospect.user_id
+                LEFT JOIN prospect_tasks t ON p.id = t.prospect_id
+                LEFT JOIN prospect_notes n ON p.id = n.prospect_id
+                WHERE p.guild_id = ? AND p.status = 'active'
+                GROUP BY p.id
+                ORDER BY p.start_date DESC
+            ''', (guild_id,))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get active prospects: {e}")
+            return []
+    
+    async def get_archived_prospects(self, guild_id: int) -> List[Dict]:
+        """Get all archived prospects (patched/dropped) for a guild"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT p.*,
+                       sponsor.discord_name as sponsor_name,
+                       prospect.discord_name as prospect_name,
+                       COUNT(t.id) as total_tasks,
+                       COUNT(CASE WHEN t.status = 'completed' THEN 1 END) as completed_tasks,
+                       COUNT(CASE WHEN t.status = 'failed' THEN 1 END) as failed_tasks,
+                       COUNT(n.id) as total_notes,
+                       COUNT(CASE WHEN n.is_strike = TRUE THEN 1 END) as strike_count
+                FROM prospects p
+                LEFT JOIN members sponsor ON p.guild_id = sponsor.guild_id AND p.sponsor_id = sponsor.user_id
+                LEFT JOIN members prospect ON p.guild_id = prospect.guild_id AND p.user_id = prospect.user_id
+                LEFT JOIN prospect_tasks t ON p.id = t.prospect_id
+                LEFT JOIN prospect_notes n ON p.id = n.prospect_id
+                WHERE p.guild_id = ? AND p.status IN ('patched', 'dropped', 'archived')
+                GROUP BY p.id
+                ORDER BY p.end_date DESC, p.updated_at DESC
+            ''', (guild_id,))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get archived prospects: {e}")
+            return []
+    
+    async def update_prospect_status(self, prospect_id: int, status: str, end_date: datetime = None) -> bool:
+        """Update prospect status (active, patched, dropped, archived)"""
+        try:
+            conn = await self._get_shared_connection()
+            
+            if end_date is None and status in ['patched', 'dropped']:
+                end_date = datetime.now()
+            
+            await conn.execute('''
+                UPDATE prospects 
+                SET status = ?, end_date = ?, updated_at = ?
+                WHERE id = ?
+            ''', (status, end_date, datetime.now(), prospect_id))
+            
+            await self._execute_commit()
+            logger.info(f"Updated prospect {prospect_id} status to {status}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update prospect status: {e}")
+            return False
+    
+    async def update_prospect_strikes(self, prospect_id: int, strikes: int) -> bool:
+        """Update prospect strike count"""
+        try:
+            conn = await self._get_shared_connection()
+            await conn.execute('''
+                UPDATE prospects 
+                SET strikes = ?, updated_at = ?
+                WHERE id = ?
+            ''', (strikes, datetime.now(), prospect_id))
+            
+            await self._execute_commit()
+            logger.info(f"Updated prospect {prospect_id} strikes to {strikes}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update prospect strikes: {e}")
+            return False
+    
+    # Prospect Task Methods
+    async def create_prospect_task(self, guild_id: int, prospect_id: int, assigned_by_id: int,
+                                 task_name: str, task_description: str, due_date: datetime = None) -> int:
+        """Create a new prospect task"""
+        try:
+            conn = await self._get_shared_connection()
+            cursor = await conn.execute('''
+                INSERT INTO prospect_tasks (guild_id, prospect_id, assigned_by_id, task_name, 
+                                          task_description, due_date)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (guild_id, prospect_id, assigned_by_id, task_name, task_description, due_date))
+            
+            task_id = cursor.lastrowid
+            await self._execute_commit()
+            
+            logger.info(f"Created task '{task_name}' for prospect {prospect_id}")
+            return task_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create prospect task: {e}")
+            raise
+    
+    async def get_prospect_tasks(self, prospect_id: int) -> List[Dict]:
+        """Get all tasks for a prospect"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT t.*,
+                       assigned_by.discord_name as assigned_by_name,
+                       completed_by.discord_name as completed_by_name
+                FROM prospect_tasks t
+                LEFT JOIN members assigned_by ON t.guild_id = assigned_by.guild_id AND t.assigned_by_id = assigned_by.user_id
+                LEFT JOIN members completed_by ON t.guild_id = completed_by.guild_id AND t.completed_by_id = completed_by.user_id
+                WHERE t.prospect_id = ?
+                ORDER BY t.created_at DESC
+            ''', (prospect_id,))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get prospect tasks: {e}")
+            return []
+    
+    async def get_overdue_tasks(self, guild_id: int) -> List[Dict]:
+        """Get all overdue prospect tasks"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT t.*,
+                       p.user_id as prospect_user_id,
+                       p.sponsor_id,
+                       prospect.discord_name as prospect_name,
+                       sponsor.discord_name as sponsor_name,
+                       assigned_by.discord_name as assigned_by_name
+                FROM prospect_tasks t
+                JOIN prospects p ON t.prospect_id = p.id
+                LEFT JOIN members prospect ON p.guild_id = prospect.guild_id AND p.user_id = prospect.user_id
+                LEFT JOIN members sponsor ON p.guild_id = sponsor.guild_id AND p.sponsor_id = sponsor.user_id
+                LEFT JOIN members assigned_by ON t.guild_id = assigned_by.guild_id AND t.assigned_by_id = assigned_by.user_id
+                WHERE t.guild_id = ? 
+                  AND t.status = 'assigned' 
+                  AND t.due_date <= ?
+                  AND p.status = 'active'
+                ORDER BY t.due_date ASC
+            ''', (guild_id, datetime.now()))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get overdue tasks: {e}")
+            return []
+    
+    async def complete_prospect_task(self, task_id: int, completed_by_id: int, notes: str = None) -> bool:
+        """Mark a prospect task as completed"""
+        try:
+            conn = await self._get_shared_connection()
+            await conn.execute('''
+                UPDATE prospect_tasks 
+                SET status = 'completed', completed_date = ?, completed_by_id = ?, 
+                    notes = ?, updated_at = ?
+                WHERE id = ?
+            ''', (datetime.now(), completed_by_id, notes, datetime.now(), task_id))
+            
+            await self._execute_commit()
+            logger.info(f"Completed prospect task {task_id} by user {completed_by_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to complete prospect task: {e}")
+            return False
+    
+    async def fail_prospect_task(self, task_id: int, completed_by_id: int, notes: str = None) -> bool:
+        """Mark a prospect task as failed"""
+        try:
+            conn = await self._get_shared_connection()
+            await conn.execute('''
+                UPDATE prospect_tasks 
+                SET status = 'failed', completed_date = ?, completed_by_id = ?, 
+                    notes = ?, updated_at = ?
+                WHERE id = ?
+            ''', (datetime.now(), completed_by_id, notes, datetime.now(), task_id))
+            
+            await self._execute_commit()
+            logger.info(f"Failed prospect task {task_id} by user {completed_by_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to fail prospect task: {e}")
+            return False
+    
+    # Prospect Notes Methods
+    async def add_prospect_note(self, guild_id: int, prospect_id: int, author_id: int,
+                              note_text: str, is_strike: bool = False) -> int:
+        """Add a note to a prospect's record"""
+        try:
+            conn = await self._get_shared_connection()
+            cursor = await conn.execute('''
+                INSERT INTO prospect_notes (guild_id, prospect_id, author_id, note_text, is_strike)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (guild_id, prospect_id, author_id, note_text, is_strike))
+            
+            note_id = cursor.lastrowid
+            
+            # If this is a strike, update the prospect's strike count
+            if is_strike:
+                await conn.execute('''
+                    UPDATE prospects 
+                    SET strikes = (SELECT COUNT(*) FROM prospect_notes WHERE prospect_id = ? AND is_strike = TRUE),
+                        updated_at = ?
+                    WHERE id = ?
+                ''', (prospect_id, datetime.now(), prospect_id))
+            
+            await self._execute_commit()
+            logger.info(f"Added {'strike' if is_strike else 'note'} to prospect {prospect_id} by user {author_id}")
+            return note_id
+            
+        except Exception as e:
+            logger.error(f"Failed to add prospect note: {e}")
+            raise
+    
+    async def get_prospect_notes(self, prospect_id: int) -> List[Dict]:
+        """Get all notes for a prospect"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT n.*, m.discord_name as author_name, m.rank as author_rank
+                FROM prospect_notes n
+                LEFT JOIN members m ON n.guild_id = m.guild_id AND n.author_id = m.user_id
+                WHERE n.prospect_id = ?
+                ORDER BY n.created_at DESC
+            ''', (prospect_id,))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get prospect notes: {e}")
+            return []
+    
+    # Prospect Voting Methods
+    async def create_prospect_vote(self, guild_id: int, prospect_id: int, started_by_id: int,
+                                 vote_type: str = 'patch') -> int:
+        """Create a new prospect vote"""
+        try:
+            conn = await self._get_shared_connection()
+            
+            # Check if there's already an active vote for this prospect
+            cursor = await conn.execute('''
+                SELECT id FROM prospect_votes 
+                WHERE prospect_id = ? AND status = 'active'
+            ''', (prospect_id,))
+            
+            if await cursor.fetchone():
+                raise ValueError("There is already an active vote for this prospect")
+            
+            cursor = await conn.execute('''
+                INSERT INTO prospect_votes (guild_id, prospect_id, started_by_id, vote_type)
+                VALUES (?, ?, ?, ?)
+            ''', (guild_id, prospect_id, started_by_id, vote_type))
+            
+            vote_id = cursor.lastrowid
+            await self._execute_commit()
+            
+            logger.info(f"Created {vote_type} vote for prospect {prospect_id} by user {started_by_id}")
+            return vote_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create prospect vote: {e}")
+            raise
+    
+    async def get_active_prospect_vote(self, prospect_id: int) -> Optional[Dict]:
+        """Get active vote for a prospect"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT v.*, 
+                       starter.discord_name as started_by_name,
+                       p.user_id as prospect_user_id,
+                       prospect.discord_name as prospect_name
+                FROM prospect_votes v
+                LEFT JOIN members starter ON v.guild_id = starter.guild_id AND v.started_by_id = starter.user_id
+                JOIN prospects p ON v.prospect_id = p.id
+                LEFT JOIN members prospect ON p.guild_id = prospect.guild_id AND p.user_id = prospect.user_id
+                WHERE v.prospect_id = ? AND v.status = 'active'
+            ''', (prospect_id,))
+            
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+            
+        except Exception as e:
+            logger.error(f"Failed to get active prospect vote: {e}")
+            return None
+    
+    async def cast_prospect_vote(self, vote_id: int, voter_id: int, vote_response: str) -> bool:
+        """Cast or update a vote response"""
+        try:
+            conn = await self._get_shared_connection()
+            await conn.execute('''
+                INSERT INTO prospect_vote_responses (vote_id, voter_id, vote_response)
+                VALUES (?, ?, ?)
+                ON CONFLICT(vote_id, voter_id) 
+                DO UPDATE SET vote_response = ?, updated_at = CURRENT_TIMESTAMP
+            ''', (vote_id, voter_id, vote_response, vote_response))
+            
+            await self._execute_commit()
+            logger.info(f"Cast vote: {vote_response} for vote {vote_id} by voter {voter_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to cast prospect vote: {e}")
+            return False
+    
+    async def get_vote_responses(self, vote_id: int, include_voter_ids: bool = False) -> Dict:
+        """Get vote responses summary (anonymous unless include_voter_ids is True)"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            
+            if include_voter_ids:
+                # Include voter information (for bot owner)
+                cursor = await conn.execute('''
+                    SELECT vr.*, m.discord_name as voter_name
+                    FROM prospect_vote_responses vr
+                    LEFT JOIN members m ON vr.voter_id = m.user_id
+                    WHERE vr.vote_id = ?
+                    ORDER BY vr.voted_at ASC
+                ''', (vote_id,))
+                
+                responses = [dict(row) for row in await cursor.fetchall()]
+            else:
+                # Anonymous summary only
+                responses = []
+            
+            # Get vote counts
+            cursor = await conn.execute('''
+                SELECT vote_response, COUNT(*) as count
+                FROM prospect_vote_responses
+                WHERE vote_id = ?
+                GROUP BY vote_response
+            ''', (vote_id,))
+            
+            counts = {row[0]: row[1] for row in await cursor.fetchall()}
+            
+            return {
+                'yes': counts.get('yes', 0),
+                'no': counts.get('no', 0),
+                'abstain': counts.get('abstain', 0),
+                'total': sum(counts.values()),
+                'responses': responses if include_voter_ids else []
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get vote responses: {e}")
+            return {'yes': 0, 'no': 0, 'abstain': 0, 'total': 0, 'responses': []}
+    
+    async def end_prospect_vote(self, vote_id: int, ended_by_id: int, result: str = None) -> bool:
+        """End a prospect vote and record result"""
+        try:
+            conn = await self._get_shared_connection()
+            
+            # Calculate result if not provided
+            if result is None:
+                vote_summary = await self.get_vote_responses(vote_id)
+                total_votes = vote_summary['total']
+                yes_votes = vote_summary['yes']
+                
+                # Unanimous requirement
+                if total_votes > 0 and yes_votes == total_votes:
+                    result = 'passed'
+                else:
+                    result = 'failed'
+            
+            await conn.execute('''
+                UPDATE prospect_votes 
+                SET status = 'completed', ended_at = ?, ended_by_id = ?, result = ?
+                WHERE id = ?
+            ''', (datetime.now(), ended_by_id, result, vote_id))
+            
+            await self._execute_commit()
+            logger.info(f"Ended prospect vote {vote_id} with result: {result}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to end prospect vote: {e}")
+            return False
+    
+    async def get_prospect_vote_history(self, prospect_id: int) -> List[Dict]:
+        """Get all votes (active and completed) for a prospect"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            cursor = await conn.execute('''
+                SELECT v.*, 
+                       starter.discord_name as started_by_name,
+                       ender.discord_name as ended_by_name
+                FROM prospect_votes v
+                LEFT JOIN members starter ON v.guild_id = starter.guild_id AND v.started_by_id = starter.user_id
+                LEFT JOIN members ender ON v.guild_id = ender.guild_id AND v.ended_by_id = ender.user_id
+                WHERE v.prospect_id = ?
+                ORDER BY v.started_at DESC
+            ''', (prospect_id,))
+            
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+            
+        except Exception as e:
+            logger.error(f"Failed to get prospect vote history: {e}")
             return []

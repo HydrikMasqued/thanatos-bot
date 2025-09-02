@@ -8,6 +8,7 @@ from datetime import datetime
 from utils.database import DatabaseManager
 from utils.time_parser import TimeParser
 from utils.loa_notifications import LOANotificationManager
+from utils.precise_reminder_system import PreciseReminderSystem
 
 # Setup logging with more detailed configuration
 logging.basicConfig(
@@ -43,6 +44,7 @@ class ThanatosBot(commands.Bot):
         
         # Task state tracking
         self._loa_task_started = False
+        self._event_task_started = False
         
         # Initialize database
         try:
@@ -67,6 +69,14 @@ class ThanatosBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to initialize LOA notification manager: {e}")
             raise
+        
+        # Initialize precise reminder system
+        try:
+            self.precise_reminders = PreciseReminderSystem(self)
+            logger.info("Precise reminder system initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize precise reminder system: {e}")
+            raise
     
     def is_bot_owner(self, user_id: int) -> bool:
         """Check if a user is a bot owner with total control"""
@@ -85,7 +95,7 @@ class ThanatosBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to initialize database in setup hook: {e}")
         
-        cogs = ['cogs.loa_system', 'cogs.membership', 'cogs.contributions', 'cogs.configuration', 'cogs.backup', 'cogs.direct_messaging', 'cogs.database_management', 'cogs.enhanced_menu_system', 'cogs.audit_logs', 'cogs.event_management', 'cogs.enhanced_event_system']
+        cogs = ['cogs.loa_system', 'cogs.membership', 'cogs.contributions', 'cogs.configuration', 'cogs.backup', 'cogs.direct_messaging', 'cogs.database_management', 'cogs.enhanced_menu_system', 'cogs.audit_logs', 'cogs.events', 'cogs.dues_tracking', 'cogs.prospect_management_consolidated', 'cogs.prospect_notifications']
         
         for cog in cogs:
             try:
@@ -113,6 +123,24 @@ class ThanatosBot(commands.Bot):
             logger.info("LOA expiration check task already running")
             self._loa_task_started = True
         
+        # Start event reminder task
+        if not self._event_task_started and not self.check_event_reminders.is_running():
+            try:
+                self.check_event_reminders.start()
+                self._event_task_started = True
+                logger.info("Event reminder check task started")
+            except RuntimeError as e:
+                if "threads can only be started once" in str(e):
+                    logger.warning("Event task already started, skipping...")
+                    self._event_task_started = True
+                else:
+                    logger.error(f"Failed to start event reminder check task: {e}")
+            except Exception as e:
+                logger.error(f"Failed to start event reminder check task: {e}")
+        elif self.check_event_reminders.is_running():
+            logger.info("Event reminder check task already running")
+            self._event_task_started = True
+        
         # Sync commands
         try:
             synced = await self.tree.sync()
@@ -131,6 +159,14 @@ class ThanatosBot(commands.Bot):
                 logger.info(f"Database initialized for guild: {guild.name} (ID: {guild.id})")
             except Exception as e:
                 logger.error(f"Failed to initialize database for guild {guild.name} (ID: {guild.id}): {e}")
+        
+        # Start precise reminder system
+        try:
+            await self.precise_reminders.start()
+            await self.precise_reminders.refresh_reminders_from_database()
+            logger.info("⏰ Precise reminder system started with 1-second accuracy")
+        except Exception as e:
+            logger.error(f"Failed to start precise reminder system: {e}")
     
     @commands.command(name="sync")
     async def sync_commands(self, ctx):
@@ -206,9 +242,9 @@ class ThanatosBot(commands.Bot):
             except Exception:
                 pass
     
-    @tasks.loop(minutes=5)  # Check every 5 minutes
+    @tasks.loop(seconds=30)  # Check every 30 seconds for precise timing
     async def check_loa_expiration(self):
-        """Background task to check for expired LOAs"""
+        """Background task to check for expired LOAs with precise timing"""
         try:
             expired_loas = await self.db.get_expired_loas()
             
@@ -218,10 +254,16 @@ class ThanatosBot(commands.Bot):
             for loa in expired_loas:
                 guild = self.get_guild(loa['guild_id'])
                 if not guild:
+                    # Guild doesn't exist - mark LOA as expired and continue
+                    logger.warning(f"LOA {loa['id']} belongs to non-existent guild {loa['guild_id']}, marking as expired")
+                    await self.db.mark_loa_expired(loa['id'])
                     continue
                 
                 member = guild.get_member(loa['user_id'])
                 if not member:
+                    # Member not in guild - mark LOA as expired and continue
+                    logger.warning(f"LOA {loa['id']} belongs to user {loa['user_id']} who is no longer in guild {loa['guild_id']}, marking as expired")
+                    await self.db.mark_loa_expired(loa['id'])
                     continue
                 
                 # Use notification manager for LOA expiration
@@ -234,10 +276,70 @@ class ThanatosBot(commands.Bot):
         except Exception as e:
             logger.error(f"Error checking LOA expiration: {e}", exc_info=True)
     
+    @tasks.loop(minutes=1)  # Check every minute for event reminders
+    async def check_event_reminders(self):
+        """Background task to check for event reminders with precise timing"""
+        try:
+            # Get events that need reminders sent
+            events_needing_reminders = await self.db.get_events_needing_reminders()
+            
+            for event in events_needing_reminders:
+                guild = self.get_guild(event['guild_id'])
+                if not guild:
+                    continue
+                
+                # Send reminders to all invited members
+                invitations = await self.db.get_event_invitations(event['id'])
+                
+                for invitation in invitations:
+                    member = guild.get_member(invitation['user_id'])
+                    if member:
+                        try:
+                            await self.send_event_reminder_dm(member, event)
+                        except Exception as e:
+                            logger.error(f"Failed to send event reminder to {member.id}: {e}")
+                
+                # Mark reminder as sent
+                await self.db.mark_reminder_sent(event['id'])
+                logger.info(f"Sent reminders for event '{event['event_name']}' (ID: {event['id']})")
+                
+        except Exception as e:
+            logger.error(f"Error checking event reminders: {e}", exc_info=True)
+    
+    async def send_event_reminder_dm(self, member, event):
+        """Send event reminder DM to a member"""
+        try:
+            embed = discord.Embed(
+                title="🔔 Event Reminder",
+                description=f"**{event['event_name']}** is coming up!",
+                color=0xFFD700
+            )
+            
+            if event.get('description'):
+                embed.add_field(name="Description", value=event['description'], inline=False)
+            
+            if event.get('event_date'):
+                embed.add_field(name="Date & Time", value=f"<t:{int(event['event_date'].timestamp())}:F>", inline=False)
+            
+            if event.get('location'):
+                embed.add_field(name="Location", value=event['location'], inline=False)
+            
+            await member.send(embed=embed)
+            
+        except discord.Forbidden:
+            logger.warning(f"Cannot send DM to {member.display_name} ({member.id}) - DMs disabled")
+        except Exception as e:
+            logger.error(f"Error sending event reminder DM to {member.id}: {e}")
+    
     @check_loa_expiration.before_loop
     async def before_check_loa_expiration(self):
         await self.wait_until_ready()
         logger.info("LOA expiration check task is ready to start")
+    
+    @check_event_reminders.before_loop
+    async def before_check_event_reminders(self):
+        await self.wait_until_ready()
+        logger.info("Event reminder check task is ready to start")
 
 def main():
     """Load bot token and run"""

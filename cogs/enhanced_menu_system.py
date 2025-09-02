@@ -88,7 +88,7 @@ class DashboardView(ModernMenuView):
         self.stats_cache = {}
     
     async def refresh_stats(self, interaction: discord.Interaction):
-        """Refresh real-time statistics"""
+        """Refresh comprehensive real-time statistics"""
         try:
             # Check officer permissions
             self.is_officer = await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot)
@@ -96,9 +96,11 @@ class DashboardView(ModernMenuView):
             # Get basic stats
             contributions = await self.bot.db.get_all_contributions(interaction.guild.id)
             members = await self.bot.db.get_all_members(interaction.guild.id)
+            events = await self.bot.db.get_active_events(interaction.guild.id)
             
             # Get LOA stats if officer
             active_loas = 0
+            dues_periods = 0
             if self.is_officer:
                 try:
                     conn = await self.bot.db._get_shared_connection()
@@ -107,18 +109,42 @@ class DashboardView(ModernMenuView):
                         (interaction.guild.id,)
                     )
                     active_loas = (await cursor.fetchone())[0]
+                    
+                    # Get active dues periods
+                    cursor = await conn.execute(
+                        'SELECT COUNT(*) FROM dues_periods WHERE guild_id = ? AND is_active = TRUE',
+                        (interaction.guild.id,)
+                    )
+                    dues_periods = (await cursor.fetchone())[0]
                 except:
                     active_loas = 0
+                    dues_periods = 0
+            
+            # Calculate contribution stats
+            total_quantity = sum(c.get('quantity', 0) for c in contributions) if contributions else 0
+            active_contributors = len(set(c['discord_name'] for c in contributions)) if contributions else 0
+            
+            # Calculate event stats  
+            total_attendees = sum(e.get('yes_count', 0) or 0 for e in events) if events else 0
             
             self.stats_cache = {
                 'total_contributions': len(contributions) if contributions else 0,
+                'total_quantity': total_quantity,
                 'total_members': len(members) if members else 0,
+                'active_contributors': active_contributors,
                 'active_loas': active_loas,
+                'active_events': len(events) if events else 0,
+                'total_attendees': total_attendees,
+                'dues_periods': dues_periods,
                 'categories': len(set(c['category'] for c in contributions)) if contributions else 0
             }
         except Exception as e:
             print(f"Error refreshing stats: {e}")
-            self.stats_cache = {'total_contributions': 0, 'total_members': 0, 'active_loas': 0, 'categories': 0}
+            self.stats_cache = {
+                'total_contributions': 0, 'total_quantity': 0, 'total_members': 0, 
+                'active_contributors': 0, 'active_loas': 0, 'active_events': 0, 
+                'total_attendees': 0, 'dues_periods': 0, 'categories': 0
+            }
     
     async def create_dashboard_embed(self, interaction: discord.Interaction) -> discord.Embed:
         """Create the main dashboard embed"""
@@ -149,15 +175,19 @@ class DashboardView(ModernMenuView):
             inline=True
         )
         
-        # Real-time statistics
+        # Real-time statistics - Enhanced
         stats_text = (
-            f"📦 **{self.stats_cache['total_contributions']:,}** Contributions\n"
-            f"👥 **{self.stats_cache['total_members']:,}** Members\n"
+            f"📦 **{self.stats_cache['total_contributions']:,}** Records ({self.stats_cache['total_quantity']:,} items)\n"
+            f"👥 **{self.stats_cache['total_members']:,}** Members ({self.stats_cache['active_contributors']} active)\n"
+            f"🎉 **{self.stats_cache['active_events']}** Events ({self.stats_cache['total_attendees']} attending)\n"
             f"📂 **{self.stats_cache['categories']}** Categories"
         )
         
         if self.is_officer:
-            stats_text += f"\n📅 **{self.stats_cache['active_loas']}** Active LOAs"
+            stats_text += (
+                f"\n📅 **{self.stats_cache['active_loas']}** Active LOAs\n"
+                f"💰 **{self.stats_cache['dues_periods']}** Dues Periods"
+            )
         
         embed.add_field(
             name="📊 Live Statistics",
@@ -173,20 +203,23 @@ class DashboardView(ModernMenuView):
             inline=True
         )
         
-        # Available modules
+        # Available modules - Enhanced
         modules = [
-            "📦 **Contributions** • Record & track donations",
-            "👥 **Membership** • Member management tools",
-            "📅 **LOA System** • Leave management",
-            "🎉 **Event Management** • Create & manage events",
+            "📦 **Contributions** • Record, track & analyze donations",
+            "👥 **Membership** • Member management & statistics",
+            "📅 **LOA System** • Interactive leave management",
+            "🎉 **Event Management** • Full RSVP & invitation system",
+            "💰 **Dues Tracking** • Payment tracking & reports",
+            "🔍 **Prospect Management** • Recruit tracking & evaluation"
         ]
         
         if self.is_officer:
             modules.extend([
-                "🗄️ **Database** • Advanced analytics",
-                "💬 **Messaging** • Direct communication",
-                "⚙️ **Administration** • System configuration",
-                "📋 **Audit Logs** • Security & tracking"
+                "🗄️ **Database Management** • Analytics, exports & archives",
+                "💬 **Messaging Center** • Direct & mass communication",
+                "⚙️ **Administration** • System configuration & backups",
+                "📋 **Audit Logs** • Complete activity tracking",
+                "🔧 **System Tools** • Advanced bot management"
             ])
         
         embed.add_field(
@@ -245,6 +278,36 @@ class DashboardView(ModernMenuView):
     )
     async def events_module(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = EventsModuleView(self.bot, self.user_id)
+        embed = await view.create_module_embed(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
+    
+    @discord.ui.button(
+        label="Dues Tracking",
+        style=discord.ButtonStyle.secondary,
+        emoji="💰",
+        row=0
+    )
+    async def dues_module(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = DuesTrackingModuleView(self.bot, self.user_id)
+        embed = await view.create_module_embed(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
+    
+    @discord.ui.button(
+        label="Prospects",
+        style=discord.ButtonStyle.secondary,
+        emoji="🔍",
+        row=1
+    )
+    async def prospect_module(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check officer permissions
+        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
+            await ContributionAuditHelpers.send_permission_error(
+                interaction, 
+                "🔒 **Prospect Management** requires Officer permissions."
+            )
+            return
+        
+        view = ProspectManagementModuleView(self.bot, self.user_id)
         embed = await view.create_module_embed(interaction)
         await interaction.response.edit_message(embed=embed, view=view)
     
@@ -1651,6 +1714,310 @@ class ConfirmEndMemberLOAView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=cancel_embed, view=None)
 
+class DuesTrackingModuleView(ModernMenuView):
+    """Dues Tracking module for comprehensive payment management"""
+    
+    async def create_module_embed(self, interaction: discord.Interaction) -> discord.Embed:
+        embed = self.create_professional_embed(
+            "💰 Dues Tracking System",
+            "**Comprehensive Payment Management & Reporting**\n\nTrack member dues, payments, and generate detailed financial reports.",
+            MenuColors.SUCCESS
+        )
+        
+        try:
+            # Get dues stats if officer
+            is_officer = await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot)
+            
+            if is_officer:
+                # Get dues periods
+                conn = await self.bot.db._get_shared_connection()
+                cursor = await conn.execute(
+                    'SELECT COUNT(*) FROM dues_periods WHERE guild_id = ? AND is_active = TRUE',
+                    (interaction.guild.id,)
+                )
+                active_periods = (await cursor.fetchone())[0]
+                
+                # Get payment stats from latest period
+                cursor = await conn.execute(
+                    'SELECT * FROM dues_periods WHERE guild_id = ? AND is_active = TRUE ORDER BY created_at DESC LIMIT 1',
+                    (interaction.guild.id,)
+                )
+                latest_period = await cursor.fetchone()
+                
+                if latest_period:
+                    summary = await self.bot.db.get_dues_collection_summary(interaction.guild.id, latest_period[0])
+                    
+                    stats_text = (
+                        f"📅 **{active_periods}** Active Periods\n"
+                        f"👥 **{summary.get('total_members', 0)}** Members Tracked\n"
+                        f"💰 **${summary.get('total_collected', 0):.2f}** Total Collected\n"
+                        f"📊 **{summary.get('collection_percentage', 0):.1f}%** Collection Rate"
+                    )
+                    
+                    embed.add_field(
+                        name="📈 Payment Statistics",
+                        value=stats_text,
+                        inline=True
+                    )
+                    
+                    # Period breakdown
+                    period_info = (
+                        f"**Latest Period:** {latest_period[2]}\n"
+                        f"**Due Amount:** ${latest_period[4]:.2f}\n"
+                        f"**Paid Members:** {summary.get('paid_count', 0)}\n"
+                        f"**Outstanding:** ${summary.get('outstanding_amount', 0):.2f}"
+                    )
+                    
+                    embed.add_field(
+                        name="🏆 Current Period",
+                        value=period_info,
+                        inline=True
+                    )
+                else:
+                    embed.add_field(
+                        name="📊 Payment Statistics",
+                        value=f"**{active_periods}** Active Periods\nNo payment data available yet.",
+                        inline=True
+                    )
+            else:
+                embed.add_field(
+                    name="👤 Member Access",
+                    value="Basic dues tracking features available.\nContact officers for payment updates.",
+                    inline=False
+                )
+        except Exception:
+            embed.add_field(
+                name="⚠️ Stats Loading",
+                value="Loading dues statistics...",
+                inline=False
+            )
+        
+        # Features based on permissions
+        is_officer = await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot)
+        
+        if is_officer:
+            features = [
+                "📋 **Create Dues Period** • Set up new payment periods",
+                "💳 **Update Payments** • Record member payments",
+                "📊 **Financial Reports** • Comprehensive analytics",
+                "📈 **Payment History** • Track member payment records",
+                "📁 **Export Data** • Backup and analysis files",
+                "🔧 **Manage Periods** • Edit and reset payment periods"
+            ]
+        else:
+            features = [
+                "💳 **View My Payments** • Check personal payment status",
+                "📋 **Payment History** • See payment records",
+                "💰 **Due Amounts** • Check current dues",
+                "📞 **Contact Officers** • Get payment assistance"
+            ]
+        
+        embed.add_field(
+            name="🎯 Available Features",
+            value="\n".join(features),
+            inline=False
+        )
+        
+        if is_officer:
+            embed.add_field(
+                name="🔧 Management Tools",
+                value="• **Period Management** • Create, edit, reset periods\n"
+                      "• **Payment Processing** • Record and track payments\n"
+                      "• **Financial Reporting** • Generate detailed reports\n"
+                      "• **Data Export** • Backup and analysis capabilities",
+                inline=False
+            )
+        
+        return embed
+    
+    @discord.ui.button(label="📋 Create Period", style=discord.ButtonStyle.primary, row=0)
+    async def create_period(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check officer permissions
+        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
+            await ContributionAuditHelpers.send_permission_error(
+                interaction, 
+                "🔒 **Dues Period Creation** requires Officer permissions."
+            )
+            return
+        
+        # Show period creation command info
+        create_embed = self.create_professional_embed(
+            "📋 Create Dues Period",
+            "Use the dues period creation command to set up new payment periods:",
+            MenuColors.INFO
+        )
+        
+        create_embed.add_field(
+            name="🚀 Quick Creation",
+            value="Use `/dues_create_period` with these parameters:\n"
+                  "• **period_name:** Name for the period (e.g. 'Q1 2024 Dues')\n"
+                  "• **due_amount:** Amount per member (e.g. 25.00)\n"
+                  "• **due_date:** When due (e.g. 'next friday', '2024-03-15')\n"
+                  "• **description:** Optional description",
+            inline=False
+        )
+        
+        create_embed.add_field(
+            name="💡 Example Usage",
+            value="`/dues_create_period period_name:'Q1 2024 Dues' due_amount:25.00 due_date:'march 15' description:'Quarterly membership dues'`",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=create_embed, ephemeral=True)
+    
+    @discord.ui.button(label="💳 Update Payment", style=discord.ButtonStyle.secondary, row=0)
+    async def update_payment(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check officer permissions
+        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
+            await ContributionAuditHelpers.send_permission_error(
+                interaction, 
+                "🔒 **Payment Updates** require Officer permissions."
+            )
+            return
+        
+        dues_cog = self.bot.get_cog('DuesTrackingSystem')
+        if dues_cog:
+            # Show payment update command info
+            update_embed = self.create_professional_embed(
+                "💳 Update Member Payment",
+                "Record and update member payment information:",
+                MenuColors.SUCCESS
+            )
+            
+            update_embed.add_field(
+                name="📝 Payment Recording",
+                value="Use `/dues_update_payment` to record payments:\n"
+                      "• Select the member and period\n"
+                      "• Enter amount paid and payment method\n"
+                      "• Set payment status (paid/partial/exempt)\n"
+                      "• Add optional notes",
+                inline=False
+            )
+            
+            update_embed.add_field(
+                name="💰 Payment Status Options",
+                value="• **Paid** - Full payment received\n"
+                      "• **Partial** - Partial payment received\n"
+                      "• **Unpaid** - No payment received\n"
+                      "• **Exempt** - Member is exempt from dues",
+                inline=True
+            )
+            
+            update_embed.add_field(
+                name="💳 Payment Methods",
+                value="Cash, Venmo, PayPal, Zelle,\nCashApp, Bank Transfer,\nCheck, Other",
+                inline=True
+            )
+            
+            await interaction.response.send_message(embed=update_embed, ephemeral=True)
+        else:
+            await self._service_unavailable(interaction, "Dues Tracking System")
+    
+    @discord.ui.button(label="📊 Financial Report", style=discord.ButtonStyle.secondary, row=0)
+    async def financial_report(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check officer permissions
+        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
+            await ContributionAuditHelpers.send_permission_error(
+                interaction, 
+                "🔒 **Financial Reports** require Officer permissions."
+            )
+            return
+        
+        dues_cog = self.bot.get_cog('DuesTrackingSystem')
+        if dues_cog:
+            await dues_cog.financial_report.callback(dues_cog, interaction)
+        else:
+            await self._service_unavailable(interaction, "Dues Financial Reports")
+    
+    @discord.ui.button(label="📈 Payment History", style=discord.ButtonStyle.secondary, row=1)
+    async def payment_history(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check officer permissions for full history, members can see their own
+        is_officer = await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot)
+        
+        if is_officer:
+            # Officers can see any member's history
+            history_embed = self.create_professional_embed(
+                "📈 Payment History Access",
+                "View detailed payment history for any member:",
+                MenuColors.INFO
+            )
+            
+            history_embed.add_field(
+                name="🔍 Officer Access",
+                value="Use `/dues_payment_history` to view:\n"
+                      "• Complete payment records for any member\n"
+                      "• Payment trends across all periods\n"
+                      "• Outstanding balances and exemptions\n"
+                      "• Payment methods and dates",
+                inline=False
+            )
+            
+            await interaction.response.send_message(embed=history_embed, ephemeral=True)
+        else:
+            # Members can only see their own
+            history_embed = self.create_professional_embed(
+                "📈 My Payment History",
+                "View your personal payment history and status:",
+                MenuColors.SUCCESS
+            )
+            
+            history_embed.add_field(
+                name="👤 Personal Access",
+                value="• View your payment records across all periods\n"
+                      "• Check current payment status\n"
+                      "• See outstanding balances\n"
+                      "• Contact officers for payment updates",
+                inline=False
+            )
+            
+            await interaction.response.send_message(embed=history_embed, ephemeral=True)
+    
+    @discord.ui.button(label="📁 Export Data", style=discord.ButtonStyle.secondary, row=1)
+    async def export_data(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check officer permissions
+        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
+            await ContributionAuditHelpers.send_permission_error(
+                interaction, 
+                "🔒 **Data Export** requires Officer permissions."
+            )
+            return
+        
+        dues_cog = self.bot.get_cog('DuesTrackingSystem')
+        if dues_cog:
+            await dues_cog.export_dues_data.callback(dues_cog, interaction)
+        else:
+            await self._service_unavailable(interaction, "Dues Data Export")
+    
+    @discord.ui.button(label="📋 View Periods", style=discord.ButtonStyle.secondary, row=1)
+    async def view_periods(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check officer permissions
+        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
+            await ContributionAuditHelpers.send_permission_error(
+                interaction, 
+                "🔒 **Period Management** requires Officer permissions."
+            )
+            return
+        
+        dues_cog = self.bot.get_cog('DuesTrackingSystem')
+        if dues_cog:
+            await dues_cog.list_dues_periods.callback(dues_cog, interaction)
+        else:
+            await self._service_unavailable(interaction, "Dues Period Management")
+    
+    @discord.ui.button(label="🏠 Dashboard", style=discord.ButtonStyle.success, row=2)
+    async def back_to_dashboard(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = DashboardView(self.bot, self.user_id)
+        embed = await view.create_dashboard_embed(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
+    
+    async def _service_unavailable(self, interaction: discord.Interaction, service_name: str):
+        error_embed = self.create_professional_embed(
+            "❌ Service Unavailable",
+            f"The {service_name} is currently unavailable. Please contact an administrator.",
+            MenuColors.DANGER
+        )
+        await interaction.response.send_message(embed=error_embed, ephemeral=True)
+
 class EventsModuleView(ModernMenuView):
     """Event Management module"""
     
@@ -1944,6 +2311,334 @@ class EnhancedMenuSystem(commands.Cog):
         test_embed.set_footer(text="Thanatos Bot • Test Command")
         
         await interaction.response.send_message(embed=test_embed, ephemeral=True)
+
+class ProspectManagementModuleView(ModernMenuView):
+    """Prospect Management module for officer access"""
+    
+    async def create_module_embed(self, interaction: discord.Interaction) -> discord.Embed:
+        embed = self.create_professional_embed(
+            "🔍 Prospect Management System",
+            "**Comprehensive Prospect Tracking & Evaluation** (Officer Access)\n\n"
+            "Manage prospect recruitment, evaluation, and advancement through the club hierarchy.",
+            MenuColors.WARNING
+        )
+        
+        try:
+            # Get prospect stats
+            active_prospects = await self.bot.db.get_active_prospects(interaction.guild.id)
+            archived_prospects = await self.bot.db.get_archived_prospects(interaction.guild.id)
+            
+            if active_prospects:
+                # Calculate stats
+                total_strikes = sum(p.get('strikes', 0) for p in active_prospects)
+                with_tasks = len([p for p in active_prospects if await self.bot.db.get_prospect_tasks(p['id'])])
+                with_notes = len([p for p in active_prospects if await self.bot.db.get_prospect_notes(p['id'])])
+                
+                stats_text = (
+                    f"👥 **{len(active_prospects)}** Active Prospects\n"
+                    f"📁 **{len(archived_prospects)}** Archived\n"
+                    f"⚠️ **{total_strikes}** Total Strikes\n"
+                    f"📋 **{with_tasks}** With Tasks"
+                )
+                
+                embed.add_field(
+                    name="📊 Prospect Statistics",
+                    value=stats_text,
+                    inline=True
+                )
+                
+                # Recent activity
+                recent_prospects = active_prospects[-3:]  # Most recent 3
+                if recent_prospects:
+                    prospect_list = []
+                    for prospect in recent_prospects:
+                        prospect_name = prospect.get('prospect_name', f"User {prospect['user_id']}")
+                        strikes = prospect.get('strikes', 0)
+                        strike_indicator = f" ⚠️{strikes}" if strikes > 0 else ""
+                        prospect_list.append(f"**{prospect_name}**{strike_indicator}\nSponsor: {prospect.get('sponsor_name', 'Unknown')}")
+                    
+                    embed.add_field(
+                        name="👤 Recent Prospects",
+                        value="\n\n".join(prospect_list),
+                        inline=True
+                    )
+            else:
+                embed.add_field(
+                    name="📊 Prospect Statistics",
+                    value="No active prospects found.\nAdd your first prospect to get started!",
+                    inline=False
+                )
+        except Exception as e:
+            embed.add_field(
+                name="⚠️ Stats Loading",
+                value=f"Loading prospect statistics... {str(e)[:50]}",
+                inline=False
+            )
+        
+        # Prospect management features
+        features = [
+            "➕ **Add Prospects** • Recruit new members",
+            "📊 **Track Progress** • Monitor advancement",
+            "📝 **Manage Tasks** • Assign and track tasks",
+            "📋 **Notes & Strikes** • Record evaluations",
+            "🗳️ **Voting System** • Vote on advancement",
+            "📈 **Analytics** • Track success rates"
+        ]
+        
+        embed.add_field(
+            name="🎯 Available Features",
+            value="\n".join(features),
+            inline=False
+        )
+        
+        # Quick actions guide
+        embed.add_field(
+            name="🚀 Quick Actions",
+            value="• Use `/prospect add` to recruit new prospects\n"
+                  "• Use `/prospect-task assign` to give tasks\n"
+                  "• Use `/prospect-note add` for evaluations\n"
+                  "• Use `/prospect-vote` for advancement votes",
+            inline=False
+        )
+        
+        return embed
+    
+    @discord.ui.button(label="➕ Add Prospect", style=discord.ButtonStyle.primary, emoji="➕", row=0)
+    async def add_prospect(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show add prospect command info
+        add_embed = self.create_professional_embed(
+            "➕ Add New Prospect",
+            "Use the prospect add command to recruit new members:",
+            MenuColors.SUCCESS
+        )
+        
+        add_embed.add_field(
+            name="🚀 Quick Prospect Addition",
+            value="Use `/prospect add` with these parameters:\n"
+                  "• **prospect:** The Discord member to recruit\n"
+                  "• **sponsor:** The member sponsoring them\n"
+                  "• System will automatically create roles and notifications",
+            inline=False
+        )
+        
+        add_embed.add_field(
+            name="💡 Example Usage",
+            value="`/prospect add prospect:@NewMember sponsor:@ExistingMember`",
+            inline=False
+        )
+        
+        add_embed.add_field(
+            name="✨ What Happens Automatically",
+            value="✅ Prospect record is created\n"
+                  "✅ 'Sponsored by X' role is assigned\n"
+                  "✅ Sponsor gets 'Sponsors' role\n"
+                  "✅ Leadership is notified\n"
+                  "✅ Prospect receives welcome DM",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=add_embed, ephemeral=True)
+    
+    @discord.ui.button(label="📋 Manage Tasks", style=discord.ButtonStyle.secondary, emoji="📋", row=0)
+    async def manage_tasks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show task management options
+        task_embed = self.create_professional_embed(
+            "📋 Prospect Task Management",
+            "Assign and track tasks for prospect evaluation:",
+            MenuColors.INFO
+        )
+        
+        task_commands = [
+            "`/prospect-task assign` • Assign new task to prospect",
+            "`/prospect-task complete` • Mark task as completed",
+            "`/prospect-task fail` • Mark task as failed",
+            "`/prospect-task list` • View prospect tasks",
+            "`/prospect-task overdue` • Show overdue tasks"
+        ]
+        
+        task_embed.add_field(
+            name="📝 Task Commands",
+            value="\n".join(task_commands),
+            inline=False
+        )
+        
+        task_embed.add_field(
+            name="💡 Task Examples",
+            value="• Attend 3 club meetings\n"
+                  "• Complete safety training\n"
+                  "• Participate in group ride\n"
+                  "• Learn club rules and bylaws\n"
+                  "• Meet other members",
+            inline=True
+        )
+        
+        task_embed.add_field(
+            name="⚠️ Task Management Tips",
+            value="• Set realistic deadlines\n"
+                  "• Track completion rates\n"
+                  "• Follow up on overdue items\n"
+                  "• Use tasks to gauge commitment\n"
+                  "• Document progress in notes",
+            inline=True
+        )
+        
+        await interaction.response.send_message(embed=task_embed, ephemeral=True)
+    
+    @discord.ui.button(label="📝 Notes & Strikes", style=discord.ButtonStyle.secondary, emoji="📝", row=0)
+    async def notes_strikes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show notes and strikes management
+        notes_embed = self.create_professional_embed(
+            "📝 Prospect Notes & Strikes System",
+            "Record evaluations, observations, and disciplinary actions:",
+            MenuColors.WARNING
+        )
+        
+        notes_commands = [
+            "`/prospect-note add` • Add evaluation note",
+            "`/prospect-note strike` • Add disciplinary strike",
+            "`/prospect-note list` • View prospect notes",
+            "`/prospect-note search` • Search notes by content"
+        ]
+        
+        notes_embed.add_field(
+            name="📋 Notes Commands",
+            value="\n".join(notes_commands),
+            inline=False
+        )
+        
+        notes_embed.add_field(
+            name="📝 Note Types",
+            value="**Regular Notes:**\n"
+                  "• Positive observations\n"
+                  "• Meeting attendance\n"
+                  "• Skill demonstrations\n"
+                  "• General progress updates",
+            inline=True
+        )
+        
+        notes_embed.add_field(
+            name="⚠️ Strike System",
+            value="**Strikes for:**\n"
+                  "• Rule violations\n"
+                  "• Poor attitude/behavior\n"
+                  "• Missed obligations\n"
+                  "• Safety violations\n\n"
+                  "**3+ strikes = Review**",
+            inline=True
+        )
+        
+        await interaction.response.send_message(embed=notes_embed, ephemeral=True)
+    
+    @discord.ui.button(label="🗳️ Voting System", style=discord.ButtonStyle.secondary, emoji="🗳️", row=1)
+    async def voting_system(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show voting system info
+        voting_embed = self.create_professional_embed(
+            "🗳️ Prospect Voting System",
+            "Democratic evaluation and advancement voting:",
+            MenuColors.INFO
+        )
+        
+        voting_commands = [
+            "`/prospect-vote create` • Start new advancement vote",
+            "`/prospect-vote cast` • Cast your vote",
+            "`/prospect-vote results` • View voting results",
+            "`/prospect-vote history` • See past votes"
+        ]
+        
+        voting_embed.add_field(
+            name="🗳️ Voting Commands",
+            value="\n".join(voting_commands),
+            inline=False
+        )
+        
+        voting_embed.add_field(
+            name="📊 Vote Types",
+            value="**Advancement Votes:**\n"
+                  "• Ready for patch\n"
+                  "• Extend prospect period\n"
+                  "• Remove from prospect status\n\n"
+                  "**Evaluation Votes:**\n"
+                  "• General performance\n"
+                  "• Specific incidents",
+            inline=True
+        )
+        
+        voting_embed.add_field(
+            name="⚖️ Voting Rules",
+            value="• All full members can vote\n"
+                  "• Anonymous voting available\n"
+                  "• Majority rules (>50%)\n"
+                  "• Officers can override\n"
+                  "• Results are logged",
+            inline=True
+        )
+        
+        await interaction.response.send_message(embed=voting_embed, ephemeral=True)
+    
+    @discord.ui.button(label="📊 Analytics", style=discord.ButtonStyle.secondary, emoji="📊", row=1)
+    async def prospect_analytics(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show analytics and reporting
+        analytics_embed = self.create_professional_embed(
+            "📊 Prospect Analytics & Reporting",
+            "Track success rates and identify improvement areas:",
+            MenuColors.SUCCESS
+        )
+        
+        analytics_features = [
+            "📈 **Success Rates** • Track patch rates by sponsor",
+            "⏱️ **Time Tracking** • Average time to advancement",
+            "🎯 **Task Completion** • Task success rates",
+            "⚠️ **Strike Analysis** • Common violation patterns",
+            "🗳️ **Vote History** • Voting pattern analysis",
+            "📋 **Reports** • Generate comprehensive reports"
+        ]
+        
+        analytics_embed.add_field(
+            name="🔍 Available Analytics",
+            value="\n".join(analytics_features),
+            inline=False
+        )
+        
+        analytics_embed.add_field(
+            name="📊 Use Analytics To:",
+            value="• Identify effective sponsors\n"
+                  "• Improve prospect programs\n"
+                  "• Adjust evaluation criteria\n"
+                  "• Track club growth trends\n"
+                  "• Make data-driven decisions",
+            inline=True
+        )
+        
+        analytics_embed.add_field(
+            name="📈 Report Types",
+            value="• Monthly prospect summary\n"
+                  "• Sponsor effectiveness\n"
+                  "• Task completion rates\n"
+                  "• Strike trend analysis\n"
+                  "• Advancement predictions",
+            inline=True
+        )
+        
+        await interaction.response.send_message(embed=analytics_embed, ephemeral=True)
+    
+    @discord.ui.button(label="📋 List Prospects", style=discord.ButtonStyle.secondary, emoji="📋", row=1)
+    async def list_prospects(self, interaction: discord.Interaction, button: discord.ui.Button):
+        prospect_cog = self.bot.get_cog('ProspectManagementConsolidated')
+        if prospect_cog:
+            await prospect_cog._prospect_list(interaction)
+        else:
+            error_embed = self.create_professional_embed(
+                "❌ Service Unavailable",
+                "The Prospect Management system is currently unavailable. Please try again later.",
+                MenuColors.DANGER
+            )
+            await interaction.response.send_message(embed=error_embed, ephemeral=True)
+    
+    @discord.ui.button(label="🏠 Dashboard", style=discord.ButtonStyle.success, row=2)
+    async def back_to_dashboard(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = DashboardView(self.bot, self.user_id)
+        embed = await view.create_dashboard_embed(interaction)
+        await interaction.response.edit_message(embed=embed, view=view)
 
 async def setup(bot):
     await bot.add_cog(EnhancedMenuSystem(bot))

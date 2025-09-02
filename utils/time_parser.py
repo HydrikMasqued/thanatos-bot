@@ -235,6 +235,188 @@ class TimeParser:
         except (ValueError, Exception):
             return False
     
+    def parse_event_reminder_time(self, reminder_str: str, event_time: datetime) -> datetime:
+        """
+        Parse event reminder time string aggressively.
+        Supports formats like:
+        - "30s", "5m", "1h" (before event)
+        - "in 30 seconds", "in an hour"
+        - "30 seconds", "5 minutes", "1 hour"
+        
+        Args:
+            reminder_str: Reminder time string (e.g., "1h", "30 minutes")
+            event_time: The event datetime
+            
+        Returns:
+            datetime when reminder should be sent
+            
+        Raises:
+            ValueError: If the reminder string cannot be parsed
+        """
+        reminder_str = reminder_str.strip().lower()
+        
+        if not reminder_str:
+            raise ValueError("Reminder time cannot be empty")
+        
+        # Remove common prefixes that don't change meaning
+        reminder_str = re.sub(r'^(in\s+|before\s+)', '', reminder_str)
+        
+        # Parse the duration
+        try:
+            # Use existing duration parsing but treat as "before event"
+            duration_delta, _ = self.parse_duration(reminder_str, datetime.now())
+            duration_only = duration_delta - datetime.now()
+            
+            # Calculate reminder time (before the event)
+            reminder_time = event_time - duration_only
+            
+            # Ensure reminder time is not in the past
+            now = datetime.now()
+            if reminder_time <= now:
+                # If calculated time is in the past, set to immediate future
+                reminder_time = now + timedelta(seconds=5)
+            
+            return reminder_time
+            
+        except Exception as e:
+            # Try alternative parsing for common phrases
+            alt_result = self._parse_alternative_reminder_formats(reminder_str, event_time)
+            if alt_result:
+                return alt_result
+            
+            raise ValueError(f"Could not parse reminder time: '{reminder_str}'. Use formats like '30s', '5m', '1h', '2 hours', etc.")
+    
+    def _parse_alternative_reminder_formats(self, reminder_str: str, event_time: datetime) -> Optional[datetime]:
+        """
+        Parse alternative reminder formats
+        """
+        now = datetime.now()
+        
+        # Handle "X before" patterns
+        before_match = re.match(r'(\d+\.?\d*)\s*([a-zA-Z]+)\s+before', reminder_str)
+        if before_match:
+            try:
+                value = float(before_match.group(1))
+                unit_str = before_match.group(2)
+                unit = self._normalize_unit(unit_str)
+                if unit:
+                    delta, _ = self._create_timedelta(value, unit)
+                    reminder_time = event_time - delta
+                    return reminder_time if reminder_time > now else now + timedelta(seconds=5)
+            except:
+                pass
+        
+        # Handle "an hour", "a minute" etc.
+        article_match = re.match(r'an?\s+([a-zA-Z]+)', reminder_str)
+        if article_match:
+            unit_str = article_match.group(1)
+            unit = self._normalize_unit(unit_str)
+            if unit:
+                delta, _ = self._create_timedelta(1.0, unit)
+                reminder_time = event_time - delta
+                return reminder_time if reminder_time > now else now + timedelta(seconds=5)
+        
+        return None
+    
+    def calculate_hourly_reminders(self, event_time: datetime, start_time: Optional[datetime] = None) -> list[datetime]:
+        """
+        Calculate hourly reminder times leading up to an event.
+        
+        Args:
+            event_time: When the event occurs
+            start_time: When to start sending reminders (defaults to now)
+            
+        Returns:
+            List of datetime objects when reminders should be sent
+        """
+        if start_time is None:
+            start_time = datetime.now()
+        
+        reminders = []
+        
+        # Don't send reminders for events in the past
+        if event_time <= start_time:
+            return reminders
+        
+        # Calculate time until event
+        time_until_event = event_time - start_time
+        hours_until_event = time_until_event.total_seconds() / 3600
+        
+        # Send reminders every hour, starting from next hour mark
+        current_time = start_time
+        
+        # Round up to next hour
+        next_hour = current_time.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        
+        reminder_time = next_hour
+        while reminder_time < event_time:
+            reminders.append(reminder_time)
+            reminder_time += timedelta(hours=1)
+        
+        # Always add a final reminder 15 minutes before if event is more than 15 minutes away
+        final_reminder = event_time - timedelta(minutes=15)
+        if final_reminder > start_time and final_reminder not in reminders:
+            reminders.append(final_reminder)
+        
+        # Sort reminders chronologically
+        reminders.sort()
+        
+        return reminders
+    
+    def get_precise_time_until(self, target_time: datetime, current_time: Optional[datetime] = None) -> dict:
+        """
+        Get precise time remaining until target with aggressive accuracy.
+        
+        Args:
+            target_time: Target datetime
+            current_time: Current time (defaults to now)
+            
+        Returns:
+            Dict with precise time breakdown and total seconds
+        """
+        if current_time is None:
+            current_time = datetime.now()
+        
+        delta = target_time - current_time
+        total_seconds = delta.total_seconds()
+        
+        if total_seconds <= 0:
+            return {
+                'is_past': True,
+                'total_seconds': abs(total_seconds),
+                'days': 0, 'hours': 0, 'minutes': 0, 'seconds': 0,
+                'formatted': 'Event has passed'
+            }
+        
+        # Calculate components
+        days = int(total_seconds // 86400)
+        remaining_seconds = total_seconds % 86400
+        hours = int(remaining_seconds // 3600)
+        remaining_seconds = remaining_seconds % 3600
+        minutes = int(remaining_seconds // 60)
+        seconds = int(remaining_seconds % 60)
+        
+        # Format string
+        parts = []
+        if days > 0:
+            parts.append(f"{days}d")
+        if hours > 0:
+            parts.append(f"{hours}h")
+        if minutes > 0:
+            parts.append(f"{minutes}m")
+        if seconds > 0 or not parts:
+            parts.append(f"{seconds}s")
+        
+        return {
+            'is_past': False,
+            'total_seconds': total_seconds,
+            'days': days,
+            'hours': hours, 
+            'minutes': minutes,
+            'seconds': seconds,
+            'formatted': ' '.join(parts)
+        }
+    
     def parse_natural_datetime(self, text: str) -> Optional[datetime]:
         """
         Parse natural language date/time expressions into datetime objects.

@@ -24,7 +24,8 @@ class MembershipSystem(commands.Cog):
             "Tailgunner": 7,
             "Enforcer": 8,
             "Full Patch": 9,
-            "Nomad": 10
+            "Nomad": 10,
+            "Prospect": 11
         }
         
         # Role name variations for flexible matching
@@ -38,7 +39,8 @@ class MembershipSystem(commands.Cog):
             "Tailgunner": ["Tailgunner", "TAILGUNNER", "tailgunner", "Tail Gunner"],
             "Enforcer": ["Enforcer", "ENFORCER", "enforcer"],
             "Full Patch": ["Full Patch", "FULL PATCH", "full patch"],
-            "Nomad": ["Nomad", "NOMAD", "nomad"]
+            "Nomad": ["Nomad", "NOMAD", "nomad"],
+            "Prospect": ["Prospect", "PROSPECT", "prospect"]
         }
         
     def _find_role_match(self, discord_role_name: str) -> str:
@@ -374,9 +376,11 @@ class MembershipSystem(commands.Cog):
                         status_display = 'ACTIVE'
                     
                     # FIXED: Always show the actual rank name, not the section name
+                    # Ensure rank_name is not None
+                    display_rank = rank_name or 'Unknown'
                     if i == 0:
                         # First member of this rank gets the rank name
-                        content.append(f"| {rank_name:<20} | {name:<18} | {username:<14} | {status_display:<6} |")
+                        content.append(f"| {display_rank:<20} | {name:<18} | {username:<14} | {status_display:<6} |")
                     else:
                         # Subsequent members get empty rank field
                         content.append(f"| {'':<20} | {name:<18} | {username:<14} | {status_display:<6} |")

@@ -5,6 +5,7 @@ from datetime import datetime
 import asyncio
 import io
 import aiosqlite
+from utils.smart_time_formatter import SmartTimeFormatter
 
 class LOAModal(discord.ui.Modal):
     def __init__(self):
@@ -46,11 +47,19 @@ class LOAModal(discord.ui.Modal):
             return await interaction.followup.send(embed=embed, ephemeral=True)
         
         try:
-            # Parse the duration
+            # Parse the duration using SmartTimeFormatter
             start_time = datetime.now()
-            end_time, normalized_duration = bot.time_parser.parse_duration(
-                self.duration.value, start_time
-            )
+            
+            # Try natural language parsing first, fallback to existing parser
+            try:
+                end_time, normalized_duration = SmartTimeFormatter.parse_natural_duration(
+                    self.duration.value, start_time
+                )
+            except ValueError:
+                # Fallback to existing time parser
+                end_time, normalized_duration = bot.time_parser.parse_duration(
+                    self.duration.value, start_time
+                )
             
             # Create LOA record in database
             loa_id = await bot.db.create_loa_record(
@@ -104,14 +113,14 @@ class LOAModal(discord.ui.Modal):
         except ValueError as e:
             embed = discord.Embed(
                 title="❌ Invalid Duration Format",
-                description=f"Could not parse duration '{self.duration.value}'. Please use formats like:\n"
-                           f"• `5s` or `5 seconds`\n"
-                           f"• `30m` or `30 minutes`\n"
-                           f"• `2h` or `2 hours`\n"
-                           f"• `3d` or `3 days`\n"
-                           f"• `2w` or `2 weeks`\n"
-                           f"• `1mo` or `1 month`\n"
-                           f"• `1y` or `1 year`\n\n"
+                description=f"Could not parse duration '{self.duration.value}'. Please use natural language or standard formats:\n\n"
+                           f"**Natural Language Examples:**\n"
+                           f"• `2 weeks and 3 days`\n"
+                           f"• `1 month`\n"
+                           f"• `5 hours 30 minutes`\n"
+                           f"• `next friday`\n\n"
+                           f"**Standard Formats:**\n"
+                           f"• `5s`, `30m`, `2h`, `3d`, `2w`, `1mo`, `1y`\n\n"
                            f"**Error:** {str(e)}",
                 color=discord.Color.red()
             )
@@ -280,9 +289,10 @@ class LOASystem(commands.Cog):
             except Exception:
                 end_dt = datetime.now()
             ends = end_dt.strftime('%Y-%m-%d %H:%M')
-            # Status remaining
+            # Status remaining using SmartTimeFormatter
             try:
-                remaining = self.bot.time_parser.format_time_remaining(end_dt)
+                smart_formatter = SmartTimeFormatter()
+                remaining = smart_formatter.format_time_remaining(end_dt)
             except Exception:
                 remaining = 'N/A'
             lines.append(f"| {name:<22} | {username:<16} | {duration:<12} | {ends:<20} | {remaining:<14} | {reason:<28} |")
@@ -327,7 +337,9 @@ class LOASystem(commands.Cog):
                 print(f"Error parsing end_time: {e}")
                 end_time = datetime.now()
             
-            remaining = self.bot.time_parser.format_time_remaining(end_time)
+            # Use SmartTimeFormatter for consistent time remaining format
+            smart_formatter = SmartTimeFormatter()
+            remaining = smart_formatter.format_time_remaining(end_time)
             
             embed = discord.Embed(
                 title="📋 Active LOA",
