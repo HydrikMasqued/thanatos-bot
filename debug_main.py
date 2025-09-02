@@ -7,6 +7,10 @@ import os
 import sys
 import traceback
 from datetime import datetime
+
+# Ensure current directory is in Python path for imports
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.database import DatabaseManager
 from utils.time_parser import TimeParser
 from utils.loa_notifications import LOANotificationManager
@@ -194,9 +198,11 @@ class EnhancedThanatosBot(commands.Bot):
             'cogs.enhanced_menu_system', 
             'cogs.audit_logs', 
             'cogs.events', 
+            'cogs.event_notepad',
             'cogs.dues_tracking',
-            'cogs.prospect_management_consolidated',
-            'cogs.prospect_tasks_and_notes_consolidated',
+            'cogs.prospect_core',
+            'cogs.prospect_management',
+            'cogs.prospect_dashboard',
             'cogs.prospect_notifications'
         ]
         

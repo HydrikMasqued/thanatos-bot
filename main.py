@@ -4,7 +4,12 @@ import asyncio
 import logging
 import json
 import os
+import sys
 from datetime import datetime
+
+# Ensure current directory is in Python path for imports
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.database import DatabaseManager
 from utils.time_parser import TimeParser
 from utils.loa_notifications import LOANotificationManager

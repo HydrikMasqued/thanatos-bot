@@ -3,7 +3,29 @@ from discord.ext import commands
 from discord import app_commands
 from datetime import datetime, timedelta
 import logging
+import os
+import sys
 from typing import Optional, List, Dict
+
+# Multiple approaches to ensure utils module can be imported
+try:
+    # First, try adding the project root to Python path
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    
+    # Also try current working directory
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
+    
+    # Try /home/container if we're in that environment
+    if '/home/container' not in sys.path:
+        sys.path.insert(0, '/home/container')
+        
+except Exception:
+    pass  # Continue even if path manipulation fails
+
 from utils.permissions import has_required_permissions
 
 logger = logging.getLogger(__name__)
