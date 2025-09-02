@@ -187,6 +187,110 @@ class SmartTimeFormatter:
             return "Unknown time"
     
     @staticmethod
+    def parse_natural_language_time(time_str: str) -> Optional[datetime]:
+        """
+        Parse natural language time expressions into datetime objects.
+        
+        Args:
+            time_str: Natural language time string
+            
+        Returns:
+            Parsed datetime object or None if parsing fails
+        """
+        if not time_str:
+            return None
+            
+        time_str = time_str.strip().lower()
+        now = datetime.now()
+        
+        try:
+            # Handle "now" and immediate expressions
+            if SmartTimeFormatter.TIME_PATTERNS['now'].search(time_str) or \
+               SmartTimeFormatter.TIME_PATTERNS['right_now'].search(time_str) or \
+               SmartTimeFormatter.TIME_PATTERNS['immediately'].search(time_str):
+                return now
+            
+            # Handle "in X hours/minutes/days"
+            for pattern_name, pattern in SmartTimeFormatter.TIME_PATTERNS.items():
+                if pattern_name.startswith('in_x_'):
+                    match = pattern.search(time_str)
+                    if match:
+                        amount = int(match.group(1))
+                        if 'hours' in pattern_name:
+                            return now + timedelta(hours=amount)
+                        elif 'minutes' in pattern_name:
+                            return now + timedelta(minutes=amount)
+                        elif 'seconds' in pattern_name:
+                            return now + timedelta(seconds=amount)
+                        elif 'days' in pattern_name:
+                            return now + timedelta(days=amount)
+            
+            # Handle "today at X" or "tomorrow at X"
+            today_match = SmartTimeFormatter.TIME_PATTERNS['today_at'].search(time_str)
+            tomorrow_match = SmartTimeFormatter.TIME_PATTERNS['tomorrow_at'].search(time_str)
+            
+            if today_match or tomorrow_match:
+                match = today_match or tomorrow_match
+                hour = int(match.group(1))
+                minute = int(match.group(2)) if match.group(2) else 0
+                ampm = match.group(3)
+                
+                if ampm:
+                    if ampm.lower() == 'pm' and hour != 12:
+                        hour += 12
+                    elif ampm.lower() == 'am' and hour == 12:
+                        hour = 0
+                
+                target_date = now.date()
+                if tomorrow_match:
+                    target_date = (now + timedelta(days=1)).date()
+                
+                return datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))
+            
+            # Handle weekday expressions
+            for pattern_name in ['next_weekday', 'this_weekday']:
+                match = SmartTimeFormatter.TIME_PATTERNS[pattern_name].search(time_str)
+                if match:
+                    weekday_name = match.group(1).lower()
+                    target_weekday = SmartTimeFormatter.WEEKDAYS[weekday_name]
+                    current_weekday = now.weekday()
+                    
+                    if pattern_name == 'next_weekday':
+                        days_ahead = target_weekday - current_weekday + 7
+                    else:  # this_weekday
+                        days_ahead = target_weekday - current_weekday
+                        if days_ahead <= 0:
+                            days_ahead += 7
+                    
+                    target_date = now + timedelta(days=days_ahead)
+                    return target_date.replace(hour=12, minute=0, second=0, microsecond=0)
+            
+            # Try common date formats
+            date_formats = [
+                "%Y-%m-%d",
+                "%m/%d/%Y",
+                "%d/%m/%Y",
+                "%Y-%m-%d %H:%M",
+                "%m/%d/%Y %H:%M",
+                "%d/%m/%Y %H:%M",
+                "%Y-%m-%d %I:%M %p",
+                "%m/%d/%Y %I:%M %p",
+                "%d/%m/%Y %I:%M %p"
+            ]
+            
+            for fmt in date_formats:
+                try:
+                    return datetime.strptime(time_str, fmt)
+                except ValueError:
+                    continue
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error parsing natural language time '{time_str}': {e}")
+            return None
+    
+    @staticmethod
     def validate_event_time(dt: datetime, min_advance_minutes: int = 5) -> tuple[bool, str]:
         """
         Validate if an event time is acceptable.
