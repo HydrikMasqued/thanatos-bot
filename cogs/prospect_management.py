@@ -3,13 +3,13 @@ from discord.ext import commands
 from discord import app_commands
 from datetime import datetime
 import logging
-from typing import Optional, Dict, List
+from typing import Optional
 from utils.permissions import has_required_permissions
 
 logger = logging.getLogger(__name__)
 
 class ProspectManagement(commands.Cog):
-    """Core prospect management commands for adding, patching, and dropping prospects"""
+    """Core prospect lifecycle management commands with role cleanup"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -50,24 +50,39 @@ class ProspectManagement(commands.Cog):
             logger.error(f"Failed to create prospect roles: {e}")
             return None, None
 
-    async def cleanup_prospect_roles(self, guild: discord.Guild, sponsored_by_role_id: int):
-        """Clean up 'Sponsored by X' role if no longer needed"""
+    async def cleanup_prospect_roles(self, guild: discord.Guild, prospect_role_id: int, sponsor_role_id: int):
+        """Clean up prospect and sponsor roles when no longer needed"""
         try:
-            role = guild.get_role(sponsored_by_role_id)
-            if role and len(role.members) == 0:
-                await role.delete(reason="No longer needed - prospect completed/dropped")
-                logger.info(f"Cleaned up role '{role.name}' in guild {guild.id}")
+            # Clean up "Sponsored by X" role
+            if prospect_role_id:
+                prospect_role = guild.get_role(prospect_role_id)
+                if prospect_role and len(prospect_role.members) == 0:
+                    await prospect_role.delete(reason="No longer needed - prospect completed/dropped")
+                    logger.info(f"Cleaned up prospect role '{prospect_role.name}' in guild {guild.id}")
+            
+            # Note: Don't delete the general "Sponsors" role as it might be used by other sponsors
+            # Only remove it from the specific sponsor if they're not sponsoring anyone else
+            if sponsor_role_id:
+                sponsor_role = guild.get_role(sponsor_role_id)
+                if sponsor_role and sponsor_role.name == "Sponsors":
+                    # Check if the sponsor has other prospects
+                    # This would require checking the database for other active prospects by this sponsor
+                    # For now, we'll leave the Sponsors role as it's generic
+                    pass
+                    
         except Exception as e:
-            logger.error(f"Failed to cleanup prospect role: {e}")
+            logger.error(f"Failed to cleanup prospect roles: {e}")
 
-    @app_commands.command(name="prospect-add", description="Add a new prospect with a sponsor")
+    @app_commands.command(name="prospect-add", description="Add a new prospect with automatic role creation")
     @app_commands.describe(
-        prospect="The user to add as a prospect",
-        sponsor="The member who will sponsor this prospect"
+        prospect="The Discord member to add as a prospect",
+        sponsor="The Discord member who will sponsor this prospect"
     )
     async def prospect_add(self, interaction: discord.Interaction, prospect: discord.Member, sponsor: discord.Member):
-        """Add a new prospect"""
-        if not await has_required_permissions(interaction, self.bot.db):
+        """Add a new prospect with automatic role assignment"""
+        if not await has_required_permissions(interaction, 
+                                            required_permissions=['manage_guild'],
+                                            allowed_roles=['Officer', 'Leadership', 'Admin', 'Moderator']):
             await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
             return
 
@@ -78,16 +93,17 @@ class ProspectManagement(commands.Cog):
             existing_prospect = await self.bot.db.get_prospect_by_user(interaction.guild.id, prospect.id)
             if existing_prospect and existing_prospect['status'] == 'active':
                 await interaction.followup.send(
-                    f"❌ {prospect.mention} is already an active prospect!", 
+                    f"❌ {prospect.mention} is already an active prospect!",
                     ephemeral=True
                 )
                 return
             
-            # Check if prospect is already a full member
-            member_record = await self.bot.db.get_member(interaction.guild.id, prospect.id)
-            if member_record and member_record.get('rank') in ['Full Patch', 'President', 'Vice President', 'Sergeant At Arms', 'Secretary', 'Treasurer', 'Road Captain', 'Tailgunner', 'Enforcer']:
+            # Check if prospect is already a full member (basic check)
+            if any(role.name in ['Full Patch', 'President', 'Vice President', 'Sergeant At Arms', 
+                               'Secretary', 'Treasurer', 'Road Captain', 'Tailgunner', 'Enforcer'] 
+                   for role in prospect.roles):
                 await interaction.followup.send(
-                    f"❌ {prospect.mention} is already a full member!", 
+                    f"❌ {prospect.mention} is already a full member!",
                     ephemeral=True
                 )
                 return
@@ -149,6 +165,46 @@ class ProspectManagement(commands.Cog):
             
             await interaction.followup.send(embed=embed)
             
+            # Send DM to prospect
+            try:
+                dm_embed = discord.Embed(
+                    title="🎉 Welcome to the Prospect Program!",
+                    description=f"You have been added as a prospect in **{interaction.guild.name}**",
+                    color=discord.Color.green()
+                )
+                dm_embed.add_field(name="Your Sponsor", value=sponsor.display_name, inline=True)
+                dm_embed.add_field(name="Added by", value=interaction.user.display_name, inline=True)
+                dm_embed.add_field(
+                    name="What's Next?",
+                    value="Your sponsor will guide you through the prospect process. "
+                          "You may receive tasks to complete and will be evaluated by the membership.",
+                    inline=False
+                )
+                await prospect.send(embed=dm_embed)
+            except discord.Forbidden:
+                logger.warning(f"Could not send prospect welcome DM to {prospect.id}")
+            
+            # Send DM to sponsor
+            try:
+                sponsor_embed = discord.Embed(
+                    title="👤 New Prospect Assignment",
+                    description=f"You are now sponsoring **{prospect.display_name}**",
+                    color=discord.Color.blue()
+                )
+                sponsor_embed.add_field(name="Prospect", value=prospect.mention, inline=True)
+                sponsor_embed.add_field(name="Added by", value=interaction.user.mention, inline=True)
+                sponsor_embed.add_field(
+                    name="Your Responsibilities",
+                    value="• Guide them through the prospect process\n"
+                          "• Assign and monitor tasks\n"
+                          "• Provide mentorship and support\n"
+                          "• Report on their progress",
+                    inline=False
+                )
+                await sponsor.send(embed=sponsor_embed)
+            except discord.Forbidden:
+                logger.warning(f"Could not send sponsor notification to {sponsor.id}")
+            
             # Log to leadership channel if configured
             config = await self.bot.db.get_server_config(interaction.guild.id)
             if config and config.get('leadership_channel_id'):
@@ -161,15 +217,20 @@ class ProspectManagement(commands.Cog):
         except Exception as e:
             logger.error(f"Error adding prospect: {e}")
             await interaction.followup.send(
-                f"❌ An error occurred while adding the prospect: {str(e)}", 
+                f"❌ An error occurred while adding the prospect: {str(e)}",
                 ephemeral=True
             )
 
-    @app_commands.command(name="prospect-patch", description="Patch a prospect (promote to full member)")
-    @app_commands.describe(prospect="The prospect to patch")
-    async def prospect_patch(self, interaction: discord.Interaction, prospect: discord.Member):
-        """Patch a prospect to full member"""
-        if not await has_required_permissions(interaction, self.bot.db):
+    @app_commands.command(name="prospect-patch", description="Promote a prospect to full member (patches them in)")
+    @app_commands.describe(
+        prospect="The prospect to promote to full member",
+        notes="Optional notes about the promotion"
+    )
+    async def prospect_patch(self, interaction: discord.Interaction, prospect: discord.Member, notes: Optional[str] = None):
+        """Promote a prospect to full member with automatic role cleanup"""
+        if not await has_required_permissions(interaction, 
+                                            required_permissions=['manage_guild'],
+                                            allowed_roles=['Officer', 'Leadership', 'Admin', 'Moderator']):
             await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
             return
 
@@ -180,93 +241,144 @@ class ProspectManagement(commands.Cog):
             prospect_record = await self.bot.db.get_prospect_by_user(interaction.guild.id, prospect.id)
             if not prospect_record or prospect_record['status'] != 'active':
                 await interaction.followup.send(
-                    f"❌ {prospect.mention} is not an active prospect!", 
+                    f"❌ {prospect.mention} is not an active prospect!",
                     ephemeral=True
                 )
                 return
             
-            # Update prospect status
+            # Get sponsor
+            sponsor = interaction.guild.get_member(prospect_record['sponsor_id'])
+            
+            # Update prospect status in database
             await self.bot.db.update_prospect_status(prospect_record['id'], 'patched')
             
-            # Update member rank
-            await self.bot.db.add_or_update_member(
-                interaction.guild.id,
-                prospect.id,
-                prospect.display_name,
-                rank='Full Patch',
-                discord_username=prospect.name
-            )
+            # Remove prospect-specific roles and add full member role
+            roles_to_remove = []
             
-            # Remove prospect role and add full patch role if it exists
-            roles_changes = []
+            # Remove "Sponsored by X" role
             if prospect_record.get('prospect_role_id'):
                 prospect_role = interaction.guild.get_role(prospect_record['prospect_role_id'])
                 if prospect_role and prospect_role in prospect.roles:
-                    await prospect.remove_roles(prospect_role, reason="Patched to full member")
-                    roles_changes.append(f"Removed {prospect_role.name}")
+                    await prospect.remove_roles(prospect_role, reason="Prospect patched to full member")
+                    roles_to_remove.append(prospect_role.name)
             
             # Add Full Patch role if it exists
             full_patch_role = discord.utils.get(interaction.guild.roles, name="Full Patch")
-            if full_patch_role and full_patch_role not in prospect.roles:
-                await prospect.add_roles(full_patch_role, reason="Patched to full member")
-                roles_changes.append(f"Added {full_patch_role.mention}")
+            if full_patch_role:
+                await prospect.add_roles(full_patch_role, reason="Promoted from prospect to full member")
             
-            # Clean up sponsored by role
-            if prospect_record.get('prospect_role_id'):
-                await self.cleanup_prospect_roles(interaction.guild, prospect_record['prospect_role_id'])
+            # Clean up roles (delete "Sponsored by X" if no one else has it)
+            await self.cleanup_prospect_roles(
+                interaction.guild, 
+                prospect_record.get('prospect_role_id'),
+                prospect_record.get('sponsor_role_id')
+            )
             
             # Create success embed
             embed = discord.Embed(
-                title="🎉 Prospect Patched Successfully",
-                description=f"{prospect.mention} has been promoted to **Full Patch**!",
+                title="🎉 Prospect Patched Successfully!",
+                description=f"**{prospect.display_name}** has been promoted to Full Member!",
                 color=discord.Color.gold(),
                 timestamp=datetime.now()
             )
-            embed.add_field(name="Sponsor", value=f"<@{prospect_record['sponsor_id']}>", inline=True)
-            embed.add_field(name="Trial Period", value=f"Started: <t:{int(datetime.fromisoformat(prospect_record['start_date']).timestamp())}:R>", inline=True)
+            embed.add_field(name="New Member", value=prospect.mention, inline=True)
+            embed.add_field(name="Sponsor", value=sponsor.mention if sponsor else "Unknown", inline=True)
+            embed.add_field(name="Promoted by", value=interaction.user.mention, inline=True)
             
-            if roles_changes:
-                embed.add_field(name="Role Changes", value="\n".join(roles_changes), inline=False)
+            # Calculate prospect duration
+            start_date = datetime.fromisoformat(prospect_record['start_date'])
+            duration = (datetime.now() - start_date).days
+            embed.add_field(name="Prospect Duration", value=f"{duration} days", inline=True)
+            embed.add_field(name="Total Strikes", value=str(prospect_record.get('strikes', 0)), inline=True)
             
-            embed.set_footer(text=f"Patched by {interaction.user.display_name}")
+            if notes:
+                embed.add_field(name="Notes", value=notes, inline=False)
+            
+            if roles_to_remove:
+                embed.add_field(name="Roles Removed", value="\n".join(f"• {role}" for role in roles_to_remove), inline=False)
+            
+            if full_patch_role:
+                embed.add_field(name="New Role", value=full_patch_role.mention, inline=False)
+            
+            embed.set_thumbnail(url=prospect.display_avatar.url)
+            embed.set_footer(text=f"Prospect ID: {prospect_record['id']}")
             
             await interaction.followup.send(embed=embed)
             
-            # Send congratulatory DM to the newly patched member
+            # Send congratulatory DM to new member
             try:
                 dm_embed = discord.Embed(
                     title="🎉 Congratulations!",
-                    description=f"You have been **patched** in **{interaction.guild.name}**!\n\nWelcome to the full membership!",
+                    description=f"You have been patched in as a Full Member of **{interaction.guild.name}**!",
                     color=discord.Color.gold()
+                )
+                dm_embed.add_field(name="Promoted by", value=interaction.user.display_name, inline=True)
+                dm_embed.add_field(name="Sponsor", value=sponsor.display_name if sponsor else "Unknown", inline=True)
+                dm_embed.add_field(name="Prospect Duration", value=f"{duration} days", inline=True)
+                
+                if notes:
+                    dm_embed.add_field(name="Promotion Notes", value=notes, inline=False)
+                
+                dm_embed.add_field(
+                    name="Welcome to the Brotherhood!",
+                    value="You are now a full member with all the rights and responsibilities that come with it. "
+                          "Congratulations on completing your prospect period!",
+                    inline=False
                 )
                 await prospect.send(embed=dm_embed)
             except discord.Forbidden:
                 logger.warning(f"Could not send patch congratulations DM to {prospect.id}")
             
-            # Log to leadership channel
-            config = await self.bot.db.get_server_config(interaction.guild.id)
-            if config and config.get('leadership_channel_id'):
-                leadership_channel = self.bot.get_channel(config['leadership_channel_id'])
-                if leadership_channel:
-                    leadership_embed = embed.copy()
-                    leadership_embed.add_field(name="Patched by", value=interaction.user.mention, inline=True)
-                    await leadership_channel.send(embed=leadership_embed)
+            # Thank the sponsor
+            if sponsor:
+                try:
+                    sponsor_embed = discord.Embed(
+                        title="🎉 Your Prospect Has Been Patched!",
+                        description=f"**{prospect.display_name}** has successfully completed their prospect period!",
+                        color=discord.Color.gold()
+                    )
+                    sponsor_embed.add_field(name="New Member", value=prospect.mention, inline=True)
+                    sponsor_embed.add_field(name="Promoted by", value=interaction.user.mention, inline=True)
+                    sponsor_embed.add_field(name="Duration", value=f"{duration} days", inline=True)
+                    sponsor_embed.add_field(
+                        name="Thank You!",
+                        value="Thank you for your guidance and mentorship throughout their prospect period. "
+                              "Your support helped them succeed!",
+                        inline=False
+                    )
+                    await sponsor.send(embed=sponsor_embed)
+                except discord.Forbidden:
+                    logger.warning(f"Could not send sponsor thank you to {sponsor.id}")
+            
+            # Send notification through prospect notifications system
+            try:
+                from cogs.prospect_notifications import ProspectNotifications
+                prospect_notifications = self.bot.get_cog('ProspectNotifications')
+                if prospect_notifications:
+                    await prospect_notifications.send_prospect_patch_notification(
+                        interaction.guild, prospect, sponsor, 
+                        await self.bot.db.get_server_config(interaction.guild.id) or {}
+                    )
+            except Exception as e:
+                logger.warning(f"Error sending patch notifications: {e}")
             
         except Exception as e:
             logger.error(f"Error patching prospect: {e}")
             await interaction.followup.send(
-                f"❌ An error occurred while patching the prospect: {str(e)}", 
+                f"❌ An error occurred while patching the prospect: {str(e)}",
                 ephemeral=True
             )
 
-    @app_commands.command(name="prospect-drop", description="Drop a prospect from the club")
+    @app_commands.command(name="prospect-drop", description="Remove a prospect from the program")
     @app_commands.describe(
-        prospect="The prospect to drop",
-        reason="Reason for dropping the prospect"
+        prospect="The prospect to remove from the program",
+        reason="Reason for removing the prospect"
     )
     async def prospect_drop(self, interaction: discord.Interaction, prospect: discord.Member, reason: str):
-        """Drop a prospect from the club"""
-        if not await has_required_permissions(interaction, self.bot.db):
+        """Remove a prospect from the program with automatic role cleanup"""
+        if not await has_required_permissions(interaction, 
+                                            required_permissions=['manage_guild'],
+                                            allowed_roles=['Officer', 'Leadership', 'Admin', 'Moderator']):
             await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
             return
 
@@ -277,348 +389,292 @@ class ProspectManagement(commands.Cog):
             prospect_record = await self.bot.db.get_prospect_by_user(interaction.guild.id, prospect.id)
             if not prospect_record or prospect_record['status'] != 'active':
                 await interaction.followup.send(
-                    f"❌ {prospect.mention} is not an active prospect!", 
+                    f"❌ {prospect.mention} is not an active prospect!",
                     ephemeral=True
                 )
                 return
             
-            # Update prospect status
+            # Get sponsor
+            sponsor = interaction.guild.get_member(prospect_record['sponsor_id'])
+            
+            # Update prospect status in database
             await self.bot.db.update_prospect_status(prospect_record['id'], 'dropped')
             
-            # Add drop note
-            await self.bot.db.add_prospect_note(
-                interaction.guild.id,
-                prospect_record['id'],
-                interaction.user.id,
-                f"**DROPPED:** {reason}",
-                is_strike=False
-            )
-            
-            # Remove roles
+            # Remove prospect-specific roles
             roles_removed = []
+            
+            # Remove "Sponsored by X" role
             if prospect_record.get('prospect_role_id'):
                 prospect_role = interaction.guild.get_role(prospect_record['prospect_role_id'])
                 if prospect_role and prospect_role in prospect.roles:
-                    await prospect.remove_roles(prospect_role, reason=f"Dropped: {reason}")
+                    await prospect.remove_roles(prospect_role, reason=f"Prospect dropped: {reason}")
                     roles_removed.append(prospect_role.name)
             
-            # Remove sponsor from Sponsors role if they have no other active prospects
-            sponsor_id = prospect_record['sponsor_id']
-            active_sponsored_prospects = await self.bot.db.get_active_prospects(interaction.guild.id)
-            other_sponsored = [p for p in active_sponsored_prospects if p['sponsor_id'] == sponsor_id and p['id'] != prospect_record['id']]
+            # Clean up roles (delete "Sponsored by X" if no one else has it)
+            await self.cleanup_prospect_roles(
+                interaction.guild, 
+                prospect_record.get('prospect_role_id'),
+                prospect_record.get('sponsor_role_id')
+            )
             
-            if not other_sponsored and prospect_record.get('sponsor_role_id'):
-                sponsors_role = interaction.guild.get_role(prospect_record['sponsor_role_id'])
-                sponsor_member = interaction.guild.get_member(sponsor_id)
-                if sponsors_role and sponsor_member and sponsors_role in sponsor_member.roles:
-                    await sponsor_member.remove_roles(sponsors_role, reason="No longer sponsoring any active prospects")
-                    roles_removed.append(f"Sponsors (from <@{sponsor_id}>)")
+            # Calculate prospect duration
+            start_date = datetime.fromisoformat(prospect_record['start_date'])
+            duration = (datetime.now() - start_date).days
             
-            # Clean up sponsored by role
-            if prospect_record.get('prospect_role_id'):
-                await self.cleanup_prospect_roles(interaction.guild, prospect_record['prospect_role_id'])
-            
-            # Create embed
+            # Create response embed
             embed = discord.Embed(
-                title="❌ Prospect Dropped",
+                title="📢 Prospect Dropped",
+                description=f"**{prospect.display_name}** has been removed from the prospect program",
                 color=discord.Color.red(),
                 timestamp=datetime.now()
             )
-            embed.add_field(name="Prospect", value=prospect.mention, inline=True)
-            embed.add_field(name="Sponsor", value=f"<@{prospect_record['sponsor_id']}>", inline=True)
+            embed.add_field(name="Former Prospect", value=prospect.mention, inline=True)
+            embed.add_field(name="Sponsor", value=sponsor.mention if sponsor else "Unknown", inline=True)
+            embed.add_field(name="Dropped by", value=interaction.user.mention, inline=True)
+            
+            embed.add_field(name="Prospect Duration", value=f"{duration} days", inline=True)
+            embed.add_field(name="Total Strikes", value=str(prospect_record.get('strikes', 0)), inline=True)
             embed.add_field(name="Reason", value=reason, inline=False)
-            embed.add_field(name="Trial Period", value=f"Started: <t:{int(datetime.fromisoformat(prospect_record['start_date']).timestamp())}:R>", inline=True)
             
             if roles_removed:
-                embed.add_field(name="Roles Removed", value="\n".join(roles_removed), inline=False)
+                embed.add_field(name="Roles Removed", value="\n".join(f"• {role}" for role in roles_removed), inline=False)
             
-            embed.set_footer(text=f"Dropped by {interaction.user.display_name}")
+            embed.set_footer(text=f"Prospect ID: {prospect_record['id']}")
             
             await interaction.followup.send(embed=embed)
             
-            # Send notification DM to the dropped prospect
+            # Send notification to dropped prospect
             try:
                 dm_embed = discord.Embed(
                     title="📢 Prospect Status Update",
-                    description=f"You have been **dropped** from prospect status in **{interaction.guild.name}**.",
+                    description=f"Your prospect status in **{interaction.guild.name}** has been concluded",
                     color=discord.Color.red()
                 )
+                dm_embed.add_field(name="Duration", value=f"{duration} days", inline=True)
+                dm_embed.add_field(name="Sponsor", value=sponsor.display_name if sponsor else "Unknown", inline=True)
                 dm_embed.add_field(name="Reason", value=reason, inline=False)
-                dm_embed.add_field(name="Note", value="You are welcome to reapply in the future if circumstances change.", inline=False)
+                dm_embed.add_field(
+                    name="Thank You",
+                    value="Thank you for your interest in our organization. "
+                          "We wish you the best in your future endeavors.",
+                    inline=False
+                )
                 await prospect.send(embed=dm_embed)
             except discord.Forbidden:
                 logger.warning(f"Could not send drop notification DM to {prospect.id}")
             
-            # Log to leadership channel
-            config = await self.bot.db.get_server_config(interaction.guild.id)
-            if config and config.get('leadership_channel_id'):
-                leadership_channel = self.bot.get_channel(config['leadership_channel_id'])
-                if leadership_channel:
-                    leadership_embed = embed.copy()
-                    leadership_embed.add_field(name="Dropped by", value=interaction.user.mention, inline=True)
-                    await leadership_channel.send(embed=leadership_embed)
+            # Notify sponsor
+            if sponsor:
+                try:
+                    sponsor_embed = discord.Embed(
+                        title="📢 Your Prospect Has Been Dropped",
+                        description=f"**{prospect.display_name}** has been removed from the prospect program",
+                        color=discord.Color.red()
+                    )
+                    sponsor_embed.add_field(name="Former Prospect", value=prospect.mention, inline=True)
+                    sponsor_embed.add_field(name="Dropped by", value=interaction.user.mention, inline=True)
+                    sponsor_embed.add_field(name="Duration", value=f"{duration} days", inline=True)
+                    sponsor_embed.add_field(name="Reason", value=reason, inline=False)
+                    await sponsor.send(embed=sponsor_embed)
+                except discord.Forbidden:
+                    logger.warning(f"Could not send drop notification to sponsor {sponsor.id}")
+            
+            # Send notification through prospect notifications system
+            try:
+                from cogs.prospect_notifications import ProspectNotifications
+                prospect_notifications = self.bot.get_cog('ProspectNotifications')
+                if prospect_notifications:
+                    await prospect_notifications.send_prospect_drop_notification(
+                        interaction.guild, prospect, sponsor, reason,
+                        await self.bot.db.get_server_config(interaction.guild.id) or {}
+                    )
+            except Exception as e:
+                logger.warning(f"Error sending drop notifications: {e}")
             
         except Exception as e:
             logger.error(f"Error dropping prospect: {e}")
             await interaction.followup.send(
-                f"❌ An error occurred while dropping the prospect: {str(e)}", 
+                f"❌ An error occurred while dropping the prospect: {str(e)}",
                 ephemeral=True
             )
 
-    @app_commands.command(name="prospect-view", description="View prospect information and status")
+    @app_commands.command(name="prospect-view", description="View detailed information about a prospect")
     @app_commands.describe(prospect="The prospect to view information for")
     async def prospect_view(self, interaction: discord.Interaction, prospect: discord.Member):
         """View detailed prospect information"""
+        if not await has_required_permissions(interaction, 
+                                            allowed_roles=['Officer', 'Leadership', 'Admin', 'Moderator', 'Sponsor', 'Member']):
+            await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
+            return
+
         try:
-            await interaction.response.defer(ephemeral=True)
+            await interaction.response.defer()
             
             # Get prospect record
             prospect_record = await self.bot.db.get_prospect_by_user(interaction.guild.id, prospect.id)
             if not prospect_record:
                 await interaction.followup.send(
-                    f"❌ {prospect.mention} is not a prospect!", 
+                    f"❌ {prospect.mention} is not a prospect!",
                     ephemeral=True
                 )
                 return
             
-            # Get tasks, notes, and votes
-            tasks = await self.bot.db.get_prospect_tasks(prospect_record['id'])
-            notes = await self.bot.db.get_prospect_notes(prospect_record['id'])
-            votes = await self.bot.db.get_prospect_vote_history(prospect_record['id'])
+            # Get sponsor details
+            sponsor = interaction.guild.get_member(prospect_record['sponsor_id'])
+            sponsor_name = sponsor.display_name if sponsor else f"User {prospect_record['sponsor_id']}"
             
-            # Create embed
+            # Calculate duration
+            start_date = datetime.fromisoformat(prospect_record['start_date'])
+            if prospect_record.get('end_date'):
+                end_date = datetime.fromisoformat(prospect_record['end_date'])
+                duration = (end_date - start_date).days
+            else:
+                duration = (datetime.now() - start_date).days
+            
+            # Status colors
             status_colors = {
                 'active': discord.Color.green(),
                 'patched': discord.Color.gold(),
-                'dropped': discord.Color.red(),
-                'archived': discord.Color.grey()
+                'dropped': discord.Color.red()
             }
             
             embed = discord.Embed(
-                title=f"📋 Prospect Profile: {prospect.display_name}",
+                title=f"👤 Prospect Profile: {prospect.display_name}",
                 color=status_colors.get(prospect_record['status'], discord.Color.blue()),
                 timestamp=datetime.now()
             )
             
             # Basic info
             embed.add_field(name="Status", value=prospect_record['status'].title(), inline=True)
-            embed.add_field(name="Sponsor", value=f"<@{prospect_record['sponsor_id']}>", inline=True)
-            embed.add_field(name="Strikes", value=str(prospect_record['strikes']), inline=True)
+            embed.add_field(name="Sponsor", value=sponsor_name, inline=True)
+            embed.add_field(name="Duration", value=f"{duration} days", inline=True)
             
-            # Dates
-            start_date = datetime.fromisoformat(prospect_record['start_date'])
             embed.add_field(name="Start Date", value=f"<t:{int(start_date.timestamp())}:F>", inline=True)
+            embed.add_field(name="Strikes", value=str(prospect_record.get('strikes', 0)), inline=True)
             
-            if prospect_record['end_date']:
+            if prospect_record.get('end_date'):
                 end_date = datetime.fromisoformat(prospect_record['end_date'])
                 embed.add_field(name="End Date", value=f"<t:{int(end_date.timestamp())}:F>", inline=True)
-                
-                # Calculate duration
-                duration = end_date - start_date
-                embed.add_field(name="Duration", value=f"{duration.days} days", inline=True)
             else:
-                # Calculate current duration
-                duration = datetime.now() - start_date
-                embed.add_field(name="Current Duration", value=f"{duration.days} days", inline=True)
+                embed.add_field(name="End Date", value="N/A (Active)", inline=True)
             
-            # Tasks summary
-            if tasks:
-                completed = len([t for t in tasks if t['status'] == 'completed'])
-                failed = len([t for t in tasks if t['status'] == 'failed'])
-                assigned = len([t for t in tasks if t['status'] == 'assigned'])
-                overdue = len([t for t in tasks if t['status'] == 'assigned' and t['due_date'] and datetime.fromisoformat(t['due_date']) < datetime.now()])
+            # Get additional stats
+            try:
+                tasks = await self.bot.db.get_prospect_tasks(prospect_record['id'])
+                notes = await self.bot.db.get_prospect_notes(prospect_record['id'])
                 
-                task_summary = f"**Total:** {len(tasks)}\n"
-                task_summary += f"✅ Completed: {completed}\n"
-                task_summary += f"❌ Failed: {failed}\n"
-                task_summary += f"⏳ Pending: {assigned}\n"
-                if overdue > 0:
-                    task_summary += f"🚨 Overdue: {overdue}"
+                # Task summary
+                if tasks:
+                    completed = len([t for t in tasks if t['status'] == 'completed'])
+                    failed = len([t for t in tasks if t['status'] == 'failed'])
+                    pending = len([t for t in tasks if t['status'] == 'assigned'])
+                    
+                    task_summary = f"**Total:** {len(tasks)}\n"
+                    task_summary += f"✅ Completed: {completed}\n"
+                    task_summary += f"❌ Failed: {failed}\n"
+                    task_summary += f"⏳ Pending: {pending}"
+                else:
+                    task_summary = "No tasks assigned"
                 
-                embed.add_field(name="Tasks", value=task_summary, inline=True)
-            else:
-                embed.add_field(name="Tasks", value="No tasks assigned", inline=True)
-            
-            # Notes summary
-            if notes:
-                strikes = len([n for n in notes if n['is_strike']])
-                regular_notes = len(notes) - strikes
-                notes_summary = f"**Total:** {len(notes)}\n"
-                notes_summary += f"📝 Notes: {regular_notes}\n"
-                notes_summary += f"⚠️ Strikes: {strikes}"
-                embed.add_field(name="Notes & Strikes", value=notes_summary, inline=True)
-            else:
-                embed.add_field(name="Notes & Strikes", value="No notes recorded", inline=True)
-            
-            # Recent activity
-            recent_activity = []
-            
-            # Add recent tasks (last 3)
-            recent_tasks = sorted(tasks, key=lambda x: x['updated_at'], reverse=True)[:3]
-            for task in recent_tasks:
-                status_emoji = {'completed': '✅', 'failed': '❌', 'assigned': '⏳'}.get(task['status'], '⏳')
-                recent_activity.append(f"{status_emoji} {task['task_name']}")
-            
-            # Add recent notes (last 3)
-            recent_notes = sorted(notes, key=lambda x: x['created_at'], reverse=True)[:3]
-            for note in recent_notes:
-                note_emoji = '⚠️' if note['is_strike'] else '📝'
-                truncated_note = note['note_text'][:30] + '...' if len(note['note_text']) > 30 else note['note_text']
-                recent_activity.append(f"{note_emoji} {truncated_note}")
-            
-            if recent_activity:
-                embed.add_field(name="Recent Activity", value="\n".join(recent_activity[:5]), inline=False)
-            
-            # Voting history
-            if votes:
-                active_vote = [v for v in votes if v['status'] == 'active']
-                if active_vote:
-                    embed.add_field(name="Active Vote", value=f"🗳️ {active_vote[0]['vote_type'].title()} vote in progress", inline=True)
+                embed.add_field(name="📋 Tasks", value=task_summary, inline=True)
                 
-                completed_votes = [v for v in votes if v['status'] == 'completed']
-                if completed_votes:
-                    last_vote = completed_votes[0]  # Most recent
-                    result_emoji = '✅' if last_vote['result'] == 'passed' else '❌'
-                    embed.add_field(name="Last Vote", value=f"{result_emoji} {last_vote['vote_type'].title()}: {last_vote['result']}", inline=True)
+                # Notes summary
+                if notes:
+                    strikes = len([n for n in notes if n.get('is_strike', False)])
+                    regular_notes = len(notes) - strikes
+                    
+                    notes_summary = f"**Total:** {len(notes)}\n"
+                    notes_summary += f"📝 Notes: {regular_notes}\n"
+                    notes_summary += f"⚠️ Strikes: {strikes}"
+                else:
+                    notes_summary = "No notes recorded"
+                
+                embed.add_field(name="📝 Notes & Strikes", value=notes_summary, inline=True)
+                
+            except Exception as e:
+                logger.error(f"Error getting prospect stats: {e}")
             
             embed.set_thumbnail(url=prospect.display_avatar.url)
             embed.set_footer(text=f"Prospect ID: {prospect_record['id']}")
             
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed)
             
         except Exception as e:
             logger.error(f"Error viewing prospect: {e}")
             await interaction.followup.send(
-                f"❌ An error occurred while retrieving prospect information: {str(e)}", 
+                f"❌ An error occurred while viewing the prospect: {str(e)}",
                 ephemeral=True
             )
 
-    @app_commands.command(name="prospect-list", description="List all active or archived prospects")
-    @app_commands.describe(
-        status="Which prospects to show (active, archived, or all)",
-        show_details="Show detailed information for each prospect"
-    )
-    @app_commands.choices(status=[
-        app_commands.Choice(name="Active", value="active"),
-        app_commands.Choice(name="Archived", value="archived"),
-        app_commands.Choice(name="All", value="all")
-    ])
-    async def prospect_list(self, interaction: discord.Interaction, status: str = "active", show_details: bool = False):
-        """List prospects with optional filtering"""
-        if not await has_required_permissions(interaction, self.bot.db):
+    @app_commands.command(name="prospect-list", description="List all prospects with their current status")
+    async def prospect_list(self, interaction: discord.Interaction):
+        """List all prospects in the guild"""
+        if not await has_required_permissions(interaction, 
+                                            allowed_roles=['Officer', 'Leadership', 'Admin', 'Moderator', 'Sponsor', 'Member']):
             await interaction.response.send_message("❌ You don't have permission to use this command.", ephemeral=True)
             return
 
         try:
-            await interaction.response.defer(ephemeral=True)
+            await interaction.response.defer()
             
-            if status == "active":
-                prospects = await self.bot.db.get_active_prospects(interaction.guild.id)
-                title = "🔍 Active Prospects"
-                color = discord.Color.green()
-            elif status == "archived":
-                prospects = await self.bot.db.get_archived_prospects(interaction.guild.id)
-                title = "📁 Archived Prospects"
-                color = discord.Color.grey()
-            else:  # all
-                active_prospects = await self.bot.db.get_active_prospects(interaction.guild.id)
-                archived_prospects = await self.bot.db.get_archived_prospects(interaction.guild.id)
-                prospects = active_prospects + archived_prospects
-                title = "📋 All Prospects"
-                color = discord.Color.blue()
+            # Get all prospects
+            active_prospects = await self.bot.db.get_active_prospects(interaction.guild.id)
+            archived_prospects = await self.bot.db.get_archived_prospects(interaction.guild.id)
             
-            if not prospects:
-                embed = discord.Embed(
-                    title=title,
-                    description="No prospects found.",
-                    color=color
+            embed = discord.Embed(
+                title="📋 Prospect Management Overview",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            
+            # Stats
+            embed.add_field(
+                name="📊 Quick Stats",
+                value=f"🟢 **Active:** {len(active_prospects)}\n📁 **Archived:** {len(archived_prospects)}\n📈 **Total:** {len(active_prospects) + len(archived_prospects)}",
+                inline=True
+            )
+            
+            # Active prospects
+            if active_prospects:
+                active_list = []
+                for i, prospect in enumerate(active_prospects[:10]):  # Limit to 10
+                    prospect_name = prospect.get('prospect_name', f"User {prospect['user_id']}")
+                    sponsor_name = prospect.get('sponsor_name', 'Unknown')
+                    
+                    start_date = datetime.fromisoformat(prospect['start_date'])
+                    duration = (datetime.now() - start_date).days
+                    
+                    strikes = prospect.get('strikes', 0)
+                    strike_text = f" ⚠️{strikes}" if strikes > 0 else ""
+                    
+                    active_list.append(f"`{i+1}.` **{prospect_name}**{strike_text}\n   └ Sponsor: {sponsor_name} • {duration} days")
+                
+                if len(active_prospects) > 10:
+                    active_list.append(f"\n*...and {len(active_prospects) - 10} more active prospects*")
+                
+                embed.add_field(
+                    name="🟢 Active Prospects",
+                    value="\n".join(active_list) if active_list else "No active prospects",
+                    inline=False
                 )
-                await interaction.followup.send(embed=embed, ephemeral=True)
-                return
-            
-            # Create embed
-            embed = discord.Embed(title=title, color=color, timestamp=datetime.now())
-            embed.set_footer(text=f"Total: {len(prospects)} prospects")
-            
-            if show_details:
-                # Detailed view - limit to 10 prospects to avoid embed limits
-                for i, prospect in enumerate(prospects[:10]):
-                    prospect_name = prospect.get('prospect_name', f"User {prospect['user_id']}")
-                    sponsor_name = prospect.get('sponsor_name', f"User {prospect['sponsor_id']}")
-                    
-                    start_date = datetime.fromisoformat(prospect['start_date'])
-                    duration = (datetime.now() - start_date).days if prospect['status'] == 'active' else (datetime.fromisoformat(prospect['end_date']) - start_date).days
-                    
-                    status_emoji = {
-                        'active': '🟢',
-                        'patched': '🟡',
-                        'dropped': '🔴',
-                        'archived': '⚫'
-                    }.get(prospect['status'], '🔵')
-                    
-                    field_value = f"{status_emoji} **{prospect['status'].title()}**\n"
-                    field_value += f"📅 {duration} days\n"
-                    field_value += f"👤 Sponsor: {sponsor_name}\n"
-                    
-                    if prospect.get('total_tasks', 0) > 0:
-                        field_value += f"✅ Tasks: {prospect.get('completed_tasks', 0)}/{prospect.get('total_tasks', 0)}\n"
-                    
-                    if prospect.get('strike_count', 0) > 0:
-                        field_value += f"⚠️ Strikes: {prospect['strike_count']}\n"
-                    
-                    embed.add_field(
-                        name=f"{i+1}. {prospect_name}",
-                        value=field_value,
-                        inline=True
-                    )
-                
-                if len(prospects) > 10:
-                    embed.add_field(
-                        name="Note",
-                        value=f"Showing first 10 of {len(prospects)} prospects. Use `/prospect-view` for individual details.",
-                        inline=False
-                    )
             else:
-                # Simple list view
-                prospect_list = []
-                for i, prospect in enumerate(prospects):
-                    prospect_name = prospect.get('prospect_name', f"User {prospect['user_id']}")
-                    sponsor_name = prospect.get('sponsor_name', f"User {prospect['sponsor_id']}")
-                    
-                    start_date = datetime.fromisoformat(prospect['start_date'])
-                    duration = (datetime.now() - start_date).days if prospect['status'] == 'active' else (datetime.fromisoformat(prospect['end_date']) - start_date).days
-                    
-                    status_emoji = {
-                        'active': '🟢',
-                        'patched': '🟡',
-                        'dropped': '🔴',
-                        'archived': '⚫'
-                    }.get(prospect['status'], '🔵')
-                    
-                    line = f"{i+1}. {status_emoji} **{prospect_name}** (by {sponsor_name}) - {duration} days"
-                    
-                    if prospect.get('strike_count', 0) > 0:
-                        line += f" ⚠️{prospect['strike_count']}"
-                    
-                    prospect_list.append(line)
-                
-                # Split into chunks to avoid embed field limits
-                chunk_size = 20
-                for i in range(0, len(prospect_list), chunk_size):
-                    chunk = prospect_list[i:i + chunk_size]
-                    field_name = f"Prospects {i+1}-{min(i+chunk_size, len(prospect_list))}" if len(prospect_list) > chunk_size else "Prospects"
-                    embed.add_field(
-                        name=field_name,
-                        value="\n".join(chunk),
-                        inline=False
-                    )
+                embed.add_field(name="🟢 Active Prospects", value="No active prospects found", inline=False)
             
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            # Recent activity
+            recent_activity = "• Use `/prospect-dashboard` for detailed views\n"
+            recent_activity += "• Use `/prospect-add` to add new prospects\n"
+            recent_activity += "• Use `/prospect-task assign` to assign tasks\n"
+            recent_activity += "• Use `/prospect-note add` for notes and strikes"
+            
+            embed.add_field(name="🔗 Quick Actions", value=recent_activity, inline=False)
+            embed.set_footer(text="Use /prospect-dashboard for interactive management")
+            
+            await interaction.followup.send(embed=embed)
             
         except Exception as e:
             logger.error(f"Error listing prospects: {e}")
             await interaction.followup.send(
-                f"❌ An error occurred while retrieving prospects: {str(e)}", 
+                f"❌ An error occurred while listing prospects: {str(e)}",
                 ephemeral=True
             )
 

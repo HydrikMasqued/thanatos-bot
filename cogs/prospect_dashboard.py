@@ -89,7 +89,7 @@ class ProspectSelectionView(discord.ui.View):
         else:
             prospects = await self.bot.db.get_archived_prospects(interaction.guild.id)
             title = "📁 Archived Prospects"
-            color = discord.Color.grey()
+            color = 0x808080
         
         # Create new view with updated prospects
         new_view = ProspectSelectionView(self.bot, self.user_id, prospects, self.view_type)
@@ -143,7 +143,7 @@ class ProspectDetailView(discord.ui.View):
             'active': discord.Color.green(),
             'patched': discord.Color.gold(),
             'dropped': discord.Color.red(),
-            'archived': discord.Color.grey()
+            'archived': 0x808080
         }
         
         embed = discord.Embed(
@@ -512,7 +512,7 @@ class ProspectDetailView(discord.ui.View):
         else:
             prospects = await self.bot.db.get_archived_prospects(interaction.guild.id)
             title = "📁 Archived Prospects"
-            color = discord.Color.grey()
+            color = 0x808080
         
         view = ProspectSelectionView(self.bot, self.user_id, prospects, self.view_type)
         
@@ -622,7 +622,7 @@ class ProspectDashboardView(discord.ui.View):
         embed = discord.Embed(
             title="📁 Archived Prospects",
             description=f"Select a prospect from the dropdown below to view detailed information.\n\n**Total archived prospects:** {len(prospects)}",
-            color=discord.Color.grey(),
+            color=0x808080,
             timestamp=datetime.now()
         )
         

@@ -1,10 +1,11 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from datetime import datetime, timedelta
 import io
 import logging
 import json
+import calendar
 from typing import List, Dict, Optional, Tuple
 from utils.smart_time_formatter import SmartTimeFormatter
 
@@ -14,6 +15,13 @@ logger = logging.getLogger(__name__)
 class AdvancedDuesTrackingSystem(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        
+        # Role IDs for reminders
+        self.PRESIDENT_ROLE_ID = 1212496539369476136
+        self.TREASURER_ROLE_ID = 1212500237470666804
+        
+        # Start the reminder check task
+        self.check_dues_reminders.start()
         
         # Payment status options with descriptions
         self.payment_statuses = {
@@ -46,6 +54,123 @@ class AdvancedDuesTrackingSystem(commands.Cog):
             'REPORT_GENERATED': 'Report generated',
             'BULK_UPDATE': 'Bulk update performed'
         }
+
+    @tasks.loop(hours=24)  # Check once per day
+    async def check_dues_reminders(self):
+        """Background task to check for due dates and send reminders"""
+        try:
+            await self.bot.wait_until_ready()
+            
+            for guild in self.bot.guilds:
+                periods = await self.bot.db.get_active_dues_periods(guild.id)
+                
+                for period in periods:
+                    if not period.get('due_date'):
+                        continue
+                        
+                    try:
+                        due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                        today = datetime.now()
+                        
+                        # Check if due date is today or overdue
+                        if due_date.date() <= today.date():
+                            await self._send_due_date_reminder(guild, period, due_date, today)
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing due date for period {period['id']}: {e}")
+                        
+        except Exception as e:
+            logger.error(f"Error in dues reminder check: {e}")
+    
+    async def _send_due_date_reminder(self, guild: discord.Guild, period: Dict, due_date: datetime, today: datetime):
+        """Send reminder to President and Treasurer about due date"""
+        try:
+            # Get President and Treasurer roles
+            president_role = guild.get_role(self.PRESIDENT_ROLE_ID)
+            treasurer_role = guild.get_role(self.TREASURER_ROLE_ID)
+            
+            if not president_role and not treasurer_role:
+                logger.warning(f"President or Treasurer roles not found in guild {guild.id}")
+                return
+            
+            # Get collection summary
+            summary = await self.bot.db.get_dues_collection_summary(guild.id, period['id'])
+            
+            # Determine reminder type
+            days_overdue = (today.date() - due_date.date()).days
+            
+            if days_overdue == 0:
+                title = "📅 Dues Due Today!"
+                color = discord.Color.orange()
+            elif days_overdue > 0:
+                title = f"⚠️ Dues Overdue ({days_overdue} days)"
+                color = discord.Color.red()
+            else:
+                return  # Future due date, no reminder needed
+            
+            embed = discord.Embed(
+                title=title,
+                description=f"**Period:** {period['period_name']}\n"
+                           f"**Due Amount:** ${period['due_amount']:.2f} per member\n"
+                           f"**Due Date:** {SmartTimeFormatter.format_discord_timestamp(due_date, 'D')}\n"
+                           f"**Days Overdue:** {max(0, days_overdue)}",
+                color=color,
+                timestamp=today
+            )
+            
+            if summary:
+                paid_percentage = (summary.get('paid_count', 0) / summary.get('total_members', 1)) * 100
+                embed.add_field(
+                    name="📊 Collection Status",
+                    value=f"**Paid:** {summary.get('paid_count', 0)}/{summary.get('total_members', 0)} ({paid_percentage:.1f}%)\n"
+                          f"**Collected:** ${summary.get('total_collected', 0):.2f}\n"
+                          f"**Outstanding:** ${summary.get('outstanding_amount', 0):.2f}",
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="🎯 Action Required",
+                value="• Follow up with unpaid members\n"
+                      "• Update payment records\n"
+                      "• Consider sending reminders",
+                inline=False
+            )
+            
+            # Find a suitable channel to send the reminder (general, officers, etc.)
+            target_channel = None
+            channel_names = ['general', 'officer-chat', 'officers', 'leadership', 'admin']
+            
+            for channel_name in channel_names:
+                channel = discord.utils.get(guild.text_channels, name=channel_name)
+                if channel:
+                    target_channel = channel
+                    break
+            
+            if not target_channel:
+                target_channel = guild.text_channels[0] if guild.text_channels else None
+            
+            if target_channel:
+                mentions = []
+                if president_role:
+                    mentions.append(president_role.mention)
+                if treasurer_role:
+                    mentions.append(treasurer_role.mention)
+                
+                mention_text = ' '.join(mentions) if mentions else ''
+                
+                await target_channel.send(
+                    content=f"{mention_text}",
+                    embed=embed
+                )
+                
+                logger.info(f"Sent dues reminder for period '{period['period_name']}' in guild {guild.id}")
+                
+        except Exception as e:
+            logger.error(f"Error sending due date reminder: {e}")
+    
+    def cog_unload(self):
+        """Clean up when cog is unloaded"""
+        self.check_dues_reminders.cancel()
 
     async def _check_officer_permissions(self, interaction: discord.Interaction) -> bool:
         """Check if user has officer permissions"""
@@ -880,6 +1005,131 @@ class AdvancedDuesTrackingSystem(commands.Cog):
             logger.error(f"Error exporting dues data: {e}")
             await interaction.followup.send(
                 "❌ An error occurred while exporting the data.",
+                ephemeral=True
+            )
+
+    @app_commands.command(name="dues_calendar", description="View dues calendar with upcoming due dates (Officers only)")
+    async def dues_calendar(self, interaction: discord.Interaction):
+        """Display dues calendar showing all periods with due dates"""
+        if not await self._check_officer_permissions(interaction):
+            return
+            
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            periods = await self.bot.db.get_active_dues_periods(interaction.guild.id)
+            
+            if not periods:
+                await interaction.followup.send(
+                    "📅 No dues periods found.",
+                    ephemeral=True
+                )
+                return
+            
+            # Filter periods with due dates and sort by date
+            periods_with_dates = []
+            periods_without_dates = []
+            
+            for period in periods:
+                if period.get('due_date'):
+                    try:
+                        due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                        periods_with_dates.append((period, due_date))
+                    except:
+                        periods_without_dates.append(period)
+                else:
+                    periods_without_dates.append(period)
+            
+            # Sort by due date
+            periods_with_dates.sort(key=lambda x: x[1])
+            
+            embed = discord.Embed(
+                title="📅 Dues Calendar",
+                description=f"**Server:** {interaction.guild.name}\n**Total Periods:** {len(periods)}",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            
+            # Current time for reference
+            now = datetime.now()
+            
+            # Add periods with due dates
+            if periods_with_dates:
+                calendar_content = []
+                
+                for period, due_date in periods_with_dates:
+                    # Get collection status
+                    summary = await self.bot.db.get_dues_collection_summary(interaction.guild.id, period['id'])
+                    
+                    # Determine status
+                    days_until_due = (due_date.date() - now.date()).days
+                    
+                    if days_until_due < 0:
+                        status_emoji = "🔴"  # Overdue
+                        status_text = f"Overdue ({abs(days_until_due)} days)"
+                    elif days_until_due == 0:
+                        status_emoji = "🟠"  # Due today
+                        status_text = "Due Today"
+                    elif days_until_due <= 7:
+                        status_emoji = "🟡"  # Due soon
+                        status_text = f"Due in {days_until_due} days"
+                    else:
+                        status_emoji = "🟢"  # Not urgent
+                        status_text = f"Due in {days_until_due} days"
+                    
+                    # Collection rate
+                    collection_rate = summary.get('collection_percentage', 0) if summary else 0
+                    collection_emoji = "✅" if collection_rate >= 80 else "⚠️" if collection_rate >= 50 else "❌"
+                    
+                    calendar_content.append(
+                        f"{status_emoji} **{period['period_name']}**\n"
+                        f"   💰 ${period['due_amount']:.2f} | {SmartTimeFormatter.format_discord_timestamp(due_date, 'D')}\n"
+                        f"   {collection_emoji} Collection: {collection_rate:.1f}% | {status_text}\n"
+                    )
+                
+                embed.add_field(
+                    name="📅 Scheduled Periods",
+                    value="\n".join(calendar_content),
+                    inline=False
+                )
+            
+            # Add periods without due dates
+            if periods_without_dates:
+                no_date_content = []
+                for period in periods_without_dates:
+                    summary = await self.bot.db.get_dues_collection_summary(interaction.guild.id, period['id'])
+                    collection_rate = summary.get('collection_percentage', 0) if summary else 0
+                    collection_emoji = "✅" if collection_rate >= 80 else "⚠️" if collection_rate >= 50 else "❌"
+                    
+                    no_date_content.append(
+                        f"📋 **{period['period_name']}**\n"
+                        f"   💰 ${period['due_amount']:.2f} | No due date set\n"
+                        f"   {collection_emoji} Collection: {collection_rate:.1f}%\n"
+                    )
+                
+                embed.add_field(
+                    name="📋 Periods Without Due Dates",
+                    value="\n".join(no_date_content),
+                    inline=False
+                )
+            
+            # Add legend
+            embed.add_field(
+                name="📊 Legend",
+                value="🔴 Overdue | 🟠 Due Today | 🟡 Due Soon | 🟢 Not Urgent\n"
+                      "✅ 80%+ Collected | ⚠️ 50-79% | ❌ <50% Collected",
+                inline=False
+            )
+            
+            # Add reminders info
+            embed.set_footer(text="Automatic reminders are sent to President and Treasurer on due dates")
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error generating dues calendar: {e}")
+            await interaction.followup.send(
+                "❌ An error occurred while generating the calendar.",
                 ephemeral=True
             )
 
