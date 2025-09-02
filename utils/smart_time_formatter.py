@@ -18,21 +18,45 @@ class SmartTimeFormatter:
         'in_x_minutes': re.compile(r'\bin\s+(\d+)\s+(?:minutes?|mins?)\b', re.IGNORECASE),
         'in_x_seconds': re.compile(r'\bin\s+(\d+)\s+(?:seconds?|secs?)\b', re.IGNORECASE),
         'in_x_days': re.compile(r'\bin\s+(\d+)\s+days?\b', re.IGNORECASE),
+        'in_x_weeks': re.compile(r'\bin\s+(\d+)\s+weeks?\b', re.IGNORECASE),
+        'in_x_months': re.compile(r'\bin\s+(\d+)\s+months?\b', re.IGNORECASE),
         
         # Today/Tomorrow patterns
+        'today': re.compile(r'\btoday\b', re.IGNORECASE),
+        'tomorrow': re.compile(r'\btomorrow\b', re.IGNORECASE),
+        'yesterday': re.compile(r'\byesterday\b', re.IGNORECASE),
         'today_at': re.compile(r'\btoday\s+(?:at\s+)?(\d{1,2}):?(\d{2})?\s*(am|pm)?\b', re.IGNORECASE),
         'today_in': re.compile(r'\btoday\s+in\s+(\d+)\s+(hours?|minutes?|mins?)\b', re.IGNORECASE),
         'tomorrow_at': re.compile(r'\btomorrow\s+(?:at\s+)?(\d{1,2}):?(\d{2})?\s*(am|pm)?\b', re.IGNORECASE),
         'tomorrow_in': re.compile(r'\btomorrow\s+in\s+(\d+)\s+(hours?|minutes?|mins?)\b', re.IGNORECASE),
         
+        # Week patterns
+        'next_week': re.compile(r'\bnext\s+week\b', re.IGNORECASE),
+        'this_week': re.compile(r'\bthis\s+week\b', re.IGNORECASE),
+        'last_week': re.compile(r'\blast\s+week\b', re.IGNORECASE),
+        'next_x_weeks': re.compile(r'\bnext\s+(\d+)\s+weeks?\b', re.IGNORECASE),
+        
+        # Month patterns
+        'next_month': re.compile(r'\bnext\s+month\b', re.IGNORECASE),
+        'this_month': re.compile(r'\bthis\s+month\b', re.IGNORECASE),
+        'last_month': re.compile(r'\blast\s+month\b', re.IGNORECASE),
+        
         # Weekday patterns
         'next_weekday': re.compile(r'\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b', re.IGNORECASE),
         'this_weekday': re.compile(r'\bthis\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b', re.IGNORECASE),
+        'last_weekday': re.compile(r'\blast\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b', re.IGNORECASE),
+        
+        # End of time period patterns
+        'end_of_week': re.compile(r'\bend\s+of\s+(?:the\s+)?week\b', re.IGNORECASE),
+        'end_of_month': re.compile(r'\bend\s+of\s+(?:the\s+)?month\b', re.IGNORECASE),
+        'end_of_day': re.compile(r'\bend\s+of\s+(?:the\s+)?day\b', re.IGNORECASE),
         
         # Common time expressions
         'now': re.compile(r'\bnow\b', re.IGNORECASE),
         'right_now': re.compile(r'\bright\s+now\b', re.IGNORECASE),
         'immediately': re.compile(r'\bimmediately\b', re.IGNORECASE),
+        'asap': re.compile(r'\basap\b', re.IGNORECASE),
+        'soon': re.compile(r'\bsoon\b', re.IGNORECASE),
     }
     
     WEEKDAYS = {
@@ -207,10 +231,60 @@ class SmartTimeFormatter:
             # Handle "now" and immediate expressions
             if SmartTimeFormatter.TIME_PATTERNS['now'].search(time_str) or \
                SmartTimeFormatter.TIME_PATTERNS['right_now'].search(time_str) or \
-               SmartTimeFormatter.TIME_PATTERNS['immediately'].search(time_str):
+               SmartTimeFormatter.TIME_PATTERNS['immediately'].search(time_str) or \
+               SmartTimeFormatter.TIME_PATTERNS['asap'].search(time_str) or \
+               SmartTimeFormatter.TIME_PATTERNS['soon'].search(time_str):
                 return now
             
-            # Handle "in X hours/minutes/days"
+            # Handle simple day expressions
+            if SmartTimeFormatter.TIME_PATTERNS['today'].search(time_str):
+                return now.replace(hour=12, minute=0, second=0, microsecond=0)
+            elif SmartTimeFormatter.TIME_PATTERNS['tomorrow'].search(time_str):
+                return (now + timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+            elif SmartTimeFormatter.TIME_PATTERNS['yesterday'].search(time_str):
+                return (now - timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+            
+            # Handle "next week", "this week", etc.
+            if SmartTimeFormatter.TIME_PATTERNS['next_week'].search(time_str):
+                days_ahead = 7 - now.weekday() + 6  # Next Monday
+                return (now + timedelta(days=days_ahead)).replace(hour=12, minute=0, second=0, microsecond=0)
+            elif SmartTimeFormatter.TIME_PATTERNS['this_week'].search(time_str):
+                days_to_friday = (4 - now.weekday()) % 7  # This Friday
+                return (now + timedelta(days=days_to_friday)).replace(hour=12, minute=0, second=0, microsecond=0)
+            elif SmartTimeFormatter.TIME_PATTERNS['last_week'].search(time_str):
+                days_back = now.weekday() + 7  # Last Monday
+                return (now - timedelta(days=days_back)).replace(hour=12, minute=0, second=0, microsecond=0)
+            
+            # Handle "next month", "this month", etc.
+            if SmartTimeFormatter.TIME_PATTERNS['next_month'].search(time_str):
+                if now.month == 12:
+                    next_month = now.replace(year=now.year + 1, month=1, day=1)
+                else:
+                    next_month = now.replace(month=now.month + 1, day=1)
+                return next_month.replace(hour=12, minute=0, second=0, microsecond=0)
+            elif SmartTimeFormatter.TIME_PATTERNS['this_month'].search(time_str):
+                end_of_month = now.replace(day=28) + timedelta(days=4)  # Go to next month
+                end_of_month = end_of_month - timedelta(days=end_of_month.day)  # Back to last day of current month
+                return end_of_month.replace(hour=12, minute=0, second=0, microsecond=0)
+            elif SmartTimeFormatter.TIME_PATTERNS['last_month'].search(time_str):
+                if now.month == 1:
+                    last_month = now.replace(year=now.year - 1, month=12, day=1)
+                else:
+                    last_month = now.replace(month=now.month - 1, day=1)
+                return last_month.replace(hour=12, minute=0, second=0, microsecond=0)
+            
+            # Handle "end of week/month/day"
+            if SmartTimeFormatter.TIME_PATTERNS['end_of_week'].search(time_str):
+                days_to_sunday = (6 - now.weekday()) % 7
+                return (now + timedelta(days=days_to_sunday)).replace(hour=23, minute=59, second=59, microsecond=0)
+            elif SmartTimeFormatter.TIME_PATTERNS['end_of_month'].search(time_str):
+                next_month = now.replace(day=28) + timedelta(days=4)
+                end_of_month = next_month - timedelta(days=next_month.day)
+                return end_of_month.replace(hour=23, minute=59, second=59, microsecond=0)
+            elif SmartTimeFormatter.TIME_PATTERNS['end_of_day'].search(time_str):
+                return now.replace(hour=23, minute=59, second=59, microsecond=0)
+            
+            # Handle "in X hours/minutes/days/weeks/months"
             for pattern_name, pattern in SmartTimeFormatter.TIME_PATTERNS.items():
                 if pattern_name.startswith('in_x_'):
                     match = pattern.search(time_str)
@@ -224,6 +298,11 @@ class SmartTimeFormatter:
                             return now + timedelta(seconds=amount)
                         elif 'days' in pattern_name:
                             return now + timedelta(days=amount)
+                        elif 'weeks' in pattern_name:
+                            return now + timedelta(weeks=amount)
+                        elif 'months' in pattern_name:
+                            # Approximate months as 30 days
+                            return now + timedelta(days=amount * 30)
             
             # Handle "today at X" or "tomorrow at X"
             today_match = SmartTimeFormatter.TIME_PATTERNS['today_at'].search(time_str)
