@@ -328,13 +328,20 @@ class MembershipSystem(commands.Cog):
             ("Nomad", grouped_members)
         ])
         
+        # Prospect section
+        content.append("+" + "-" * 22 + "+" + "-" * 20 + "+" + "-" * 16 + "+" + "-" * 8 + "+")
+        self._add_table_section(content, "PROSPECTS", [
+            ("Prospect", grouped_members)
+        ])
+        
         # Add any other ranks not covered above
         three_heads = ["President", "Vice President", "Sergeant At Arms"]
         chapter_council = ["Secretary", "Treasurer", "Road Captain", "Tailgunner", "Enforcer"]
         full_patch = ["Full Patch"]
         nomad_ranks = ["Nomad"]
+        prospect_ranks = ["Prospect"]
         other_ranks = [rank for rank in grouped_members.keys() 
-                      if rank not in three_heads + chapter_council + full_patch + nomad_ranks]
+                      if rank not in three_heads + chapter_council + full_patch + nomad_ranks + prospect_ranks]
         
         if other_ranks:
             content.append("+" + "-" * 22 + "+" + "-" * 20 + "+" + "-" * 16 + "+" + "-" * 8 + "+")
@@ -462,9 +469,12 @@ class MembershipSystem(commands.Cog):
         self._add_embed_section(main_embed, "🗺️ Nomad", 
                                ["Nomad"], grouped_members)
         
+        self._add_embed_section(main_embed, "🔰 Prospects", 
+                               ["Prospect"], grouped_members)
+        
         # Add other ranks if any
         covered_ranks = ["President", "Vice President", "Sergeant At Arms", "Secretary", 
-                        "Treasurer", "Road Captain", "Tailgunner", "Enforcer", "Full Patch", "Nomad"]
+                        "Treasurer", "Road Captain", "Tailgunner", "Enforcer", "Full Patch", "Nomad", "Prospect"]
         other_ranks = [rank for rank in grouped_members.keys() if rank not in covered_ranks]
         
         if other_ranks:
