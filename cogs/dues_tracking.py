@@ -8,6 +8,7 @@ import json
 import calendar
 from typing import List, Dict, Optional, Tuple
 from utils.smart_time_formatter import SmartTimeFormatter
+from utils.advanced_timestamp_parser import AdvancedTimestampParser
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -204,20 +205,26 @@ class AdvancedDuesTrackingSystem(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Parse due date if provided
+            # Parse due date if provided using advanced timestamp parser
             parsed_due_date = None
             if due_date:
-                # Try natural language parsing first
-                parsed_due_date = SmartTimeFormatter.parse_natural_language_time(due_date)
-                if not parsed_due_date:
-                    try:
-                        parsed_due_date = datetime.strptime(due_date, "%Y-%m-%d")
-                    except ValueError:
-                        await interaction.followup.send(
-                            "❌ Invalid date format. Use natural language (e.g., 'next friday') or YYYY-MM-DD format.",
-                            ephemeral=True
-                        )
-                        return
+                timestamp_result = AdvancedTimestampParser.parse_any_timestamp(due_date, context="dues")
+                
+                if not timestamp_result or not timestamp_result['is_valid']:
+                    error_msg = f"❌ Could not parse due date: '{due_date}'"
+                    if timestamp_result and timestamp_result.get('error'):
+                        error_msg += f"\nError: {timestamp_result['error']}"
+                    
+                    error_msg += "\n\n📅 **Supported formats:**\n"
+                    error_msg += "• **Natural language:** 'next friday', 'end of month', 'january 15'\n"
+                    error_msg += "• **Due-specific:** 'due by friday', 'deadline next week'\n"
+                    error_msg += "• **Standard formats:** '2024-01-15', '1/15/2024'\n"
+                    error_msg += "• **Discord timestamps:** '<t:1704670800:F>' (from Discord)"
+                    
+                    await interaction.followup.send(error_msg, ephemeral=True)
+                    return
+                    
+                parsed_due_date = timestamp_result['datetime']
 
             # Create the dues period
             period_id = await self.bot.db.create_dues_period(
@@ -229,11 +236,22 @@ class AdvancedDuesTrackingSystem(commands.Cog):
                 created_by_id=interaction.user.id
             )
 
+            # Create enhanced success message
+            due_date_display = "Not set"
+            if parsed_due_date:
+                timestamp_formats = AdvancedTimestampParser.suggest_timestamp_formats(parsed_due_date)
+                due_date_display = f"{timestamp_formats['full_long']} ({timestamp_formats['relative']})"
+                
+                # Add parsing information if available
+                if due_date and 'timestamp_result' in locals() and timestamp_result.get('source_format'):
+                    confidence_emoji = "🎯" if timestamp_result['confidence'] >= 0.9 else "✅" if timestamp_result['confidence'] >= 0.7 else "⚠️"
+                    due_date_display += f"\n{confidence_emoji} *Parsed from: {timestamp_result['source_format']}*"
+            
             embed = discord.Embed(
                 title="✅ Dues Period Created",
                 description=f"**Period:** {period_name}\n"
                            f"**Due Amount:** ${due_amount:.2f}\n"
-                           f"**Due Date:** {due_date if due_date else 'Not set'}\n"
+                           f"**Due Date:** {due_date_display}\n"
                            f"**Description:** {description if description else 'None'}",
                 color=discord.Color.green(),
                 timestamp=datetime.now()
@@ -325,20 +343,26 @@ class AdvancedDuesTrackingSystem(commands.Cog):
                 )
                 return
 
-            # Parse payment date if provided
+            # Parse payment date if provided using advanced timestamp parser
             parsed_payment_date = None
+            payment_timestamp_result = None
             if payment_date:
-                # Try natural language parsing first
-                parsed_payment_date = SmartTimeFormatter.parse_natural_language_time(payment_date)
-                if not parsed_payment_date:
-                    try:
-                        parsed_payment_date = datetime.strptime(payment_date, "%Y-%m-%d")
-                    except ValueError:
-                        await interaction.followup.send(
-                            "❌ Invalid payment date format. Use natural language (e.g., 'today', 'yesterday') or YYYY-MM-DD format.",
-                            ephemeral=True
-                        )
-                        return
+                payment_timestamp_result = AdvancedTimestampParser.parse_any_timestamp(payment_date, context="dues")
+                
+                if not payment_timestamp_result or not payment_timestamp_result['is_valid']:
+                    error_msg = f"❌ Could not parse payment date: '{payment_date}'"
+                    if payment_timestamp_result and payment_timestamp_result.get('error'):
+                        error_msg += f"\nError: {payment_timestamp_result['error']}"
+                    
+                    error_msg += "\n\n📅 **Supported formats:**\n"
+                    error_msg += "• **Natural language:** 'today', 'yesterday', 'last friday'\n"
+                    error_msg += "• **Standard formats:** '2024-01-15', '1/15/2024'\n"
+                    error_msg += "• **Discord timestamps:** '<t:1704670800:F>' (from Discord)"
+                    
+                    await interaction.followup.send(error_msg, ephemeral=True)
+                    return
+                    
+                parsed_payment_date = payment_timestamp_result['datetime']
 
             # Update the payment record
             await self.bot.db.update_dues_payment(
@@ -363,6 +387,19 @@ class AdvancedDuesTrackingSystem(commands.Cog):
                 )
                 return
 
+            # Create enhanced payment date display
+            payment_date_display = "Not specified"
+            if parsed_payment_date:
+                timestamp_formats = AdvancedTimestampParser.suggest_timestamp_formats(parsed_payment_date)
+                payment_date_display = f"{timestamp_formats['date_long']} ({timestamp_formats['relative']})"
+                
+                # Add parsing information if available
+                if payment_timestamp_result and payment_timestamp_result.get('source_format'):
+                    confidence_emoji = "🎯" if payment_timestamp_result['confidence'] >= 0.9 else "✅" if payment_timestamp_result['confidence'] >= 0.7 else "⚠️"
+                    payment_date_display += f"\n{confidence_emoji} *Parsed from: {payment_timestamp_result['source_format']}*"
+            elif payment_date:
+                payment_date_display = payment_date
+            
             embed = discord.Embed(
                 title="✅ Payment Updated",
                 description=f"**Member:** {member.display_name}\n"
@@ -370,7 +407,7 @@ class AdvancedDuesTrackingSystem(commands.Cog):
                            f"**Amount Paid:** ${amount_paid:.2f}\n"
                            f"**Status:** {payment_status.title()}\n"
                            f"**Method:** {payment_method or 'Not specified'}\n"
-                           f"**Date:** {payment_date or 'Not specified'}\n"
+                           f"**Date:** {payment_date_display}\n"
                            f"**Exempt:** {'Yes' if exempt else 'No'}\n"
                            f"**Notes:** {notes or 'None'}",
                 color=discord.Color.green(),

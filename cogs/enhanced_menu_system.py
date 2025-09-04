@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Union
 import asyncio
 from utils.contribution_audit_helpers import ContributionAuditHelpers
+from utils.advanced_timestamp_parser import AdvancedTimestampParser
 
 # Professional color scheme
 class MenuColors:
@@ -1760,9 +1761,19 @@ class DuesTrackingModuleView(ModernMenuView):
                         inline=True
                     )
                     
-                    # Period breakdown
+                    # Period breakdown with enhanced due date display
+                    due_date_display = "Not set"
+                    if latest_period[5]:  # due_date column
+                        try:
+                            due_date = datetime.fromisoformat(latest_period[5].replace('Z', '+00:00'))
+                            timestamp_formats = AdvancedTimestampParser.suggest_timestamp_formats(due_date)
+                            due_date_display = f"{timestamp_formats['date_long']} ({timestamp_formats['relative']})"
+                        except:
+                            due_date_display = str(latest_period[5])
+                    
                     period_info = (
                         f"**Latest Period:** {latest_period[2]}\n"
+                        f"**Due Date:** {due_date_display}\n"
                         f"**Due Amount:** ${latest_period[4]:.2f}\n"
                         f"**Paid Members:** {summary.get('paid_count', 0)}\n"
                         f"**Outstanding:** ${summary.get('outstanding_amount', 0):.2f}"
@@ -1852,8 +1863,18 @@ class DuesTrackingModuleView(ModernMenuView):
             value="Use `/dues_create_period` with these parameters:\n"
                   "• **period_name:** Name for the period (e.g. 'Q1 2024 Dues')\n"
                   "• **due_amount:** Amount per member (e.g. 25.00)\n"
-                  "• **due_date:** When due (e.g. 'next friday', '2024-03-15')\n"
+                  "• **due_date:** When due (supports advanced parsing!)\n"
                   "• **description:** Optional description",
+            inline=False
+        )
+        
+        create_embed.add_field(
+            name="📅 Due Date Examples",
+            value="The bot supports many date formats:\n"
+                  "• **Natural:** 'next friday', 'end of month', 'january 15'\n"
+                  "• **Due-specific:** 'due by march 1st', 'deadline next week'\n"
+                  "• **Standard:** '2024-03-15', '3/15/2024'\n"
+                  "• **Discord timestamps:** Copy from Discord messages!",
             inline=False
         )
         
@@ -1875,7 +1896,7 @@ class DuesTrackingModuleView(ModernMenuView):
             )
             return
         
-        dues_cog = self.bot.get_cog('DuesTrackingSystem')
+        dues_cog = self.bot.get_cog('AdvancedDuesTrackingSystem')
         if dues_cog:
             # Show payment update command info
             update_embed = self.create_professional_embed(
@@ -1923,9 +1944,9 @@ class DuesTrackingModuleView(ModernMenuView):
             )
             return
         
-        dues_cog = self.bot.get_cog('DuesTrackingSystem')
+        dues_cog = self.bot.get_cog('AdvancedDuesTrackingSystem')
         if dues_cog:
-            await dues_cog.financial_report.callback(dues_cog, interaction)
+            await dues_cog.financial_report(interaction)
         else:
             await self._service_unavailable(interaction, "Dues Financial Reports")
     
@@ -1982,9 +2003,9 @@ class DuesTrackingModuleView(ModernMenuView):
             )
             return
         
-        dues_cog = self.bot.get_cog('DuesTrackingSystem')
+        dues_cog = self.bot.get_cog('AdvancedDuesTrackingSystem')
         if dues_cog:
-            await dues_cog.export_dues_data.callback(dues_cog, interaction)
+            await dues_cog.export_dues_data(interaction)
         else:
             await self._service_unavailable(interaction, "Dues Data Export")
     
@@ -1998,9 +2019,9 @@ class DuesTrackingModuleView(ModernMenuView):
             )
             return
         
-        dues_cog = self.bot.get_cog('DuesTrackingSystem')
+        dues_cog = self.bot.get_cog('AdvancedDuesTrackingSystem')
         if dues_cog:
-            await dues_cog.list_dues_periods.callback(dues_cog, interaction)
+            await dues_cog.list_dues_periods(interaction)
         else:
             await self._service_unavailable(interaction, "Dues Period Management")
     
@@ -2051,13 +2072,28 @@ class EventsModuleView(ModernMenuView):
                     inline=True
                 )
                 
-                # Upcoming events
+                # Upcoming events with proper timestamp formatting
                 upcoming = [e for e in events[:3]]  # First 3 events
                 if upcoming:
                     event_list = []
                     for event in upcoming:
                         attending = event.get('yes_count', 0) or 0
-                        event_list.append(f"**{event['event_name']}**\n📅 {event['event_date']} | ✅ {attending} attending")
+                        
+                        # Format event date using Discord timestamps
+                        event_date_display = "TBD"
+                        if event.get('event_date'):
+                            try:
+                                if isinstance(event['event_date'], str):
+                                    event_datetime = datetime.fromisoformat(event['event_date'].replace('Z', '+00:00'))
+                                else:
+                                    event_datetime = event['event_date']
+                                
+                                timestamp_formats = AdvancedTimestampParser.suggest_timestamp_formats(event_datetime)
+                                event_date_display = f"{timestamp_formats['date_short']} {timestamp_formats['time_short']} ({timestamp_formats['relative']})"
+                            except:
+                                event_date_display = str(event['event_date'])
+                        
+                        event_list.append(f"**{event['event_name']}**\n📅 {event_date_display} | ✅ {attending} attending")
                     
                     embed.add_field(
                         name="🔜 Upcoming Events",
@@ -2143,9 +2179,9 @@ class EventsModuleView(ModernMenuView):
     
     @discord.ui.button(label="📅 List Events", style=discord.ButtonStyle.secondary, row=0)
     async def list_events(self, interaction: discord.Interaction, button: discord.ui.Button):
-        events_cog = self.bot.get_cog('EventManagement')
+        events_cog = self.bot.get_cog('EventSystem')
         if events_cog:
-            await events_cog.list_events.callback(events_cog, interaction)
+            await events_cog.list_events(interaction)
         else:
             error_embed = self.create_professional_embed(
                 "❌ Service Unavailable",
@@ -2164,16 +2200,34 @@ class EventsModuleView(ModernMenuView):
             )
             return
         
-        events_cog = self.bot.get_cog('EventManagement')
-        if events_cog:
-            await events_cog.event_analytics.callback(events_cog, interaction)
-        else:
-            error_embed = self.create_professional_embed(
-                "❌ Service Unavailable",
-                "The Event Management system is currently unavailable. Please try again later.",
-                MenuColors.DANGER
-            )
-            await interaction.response.send_message(embed=error_embed, ephemeral=True)
+        events_cog = self.bot.get_cog('EventSystem')
+        analytics_embed = self.create_professional_embed(
+            "📊 Event Analytics & Reporting",
+            "Access comprehensive event analytics and attendance data:",
+            MenuColors.INFO
+        )
+        
+        analytics_embed.add_field(
+            name="📋 Available Analytics",
+            value="Use the following commands for event analytics:\n\n"
+                  "• `/event-attendance <event_id>` - View attendance for specific event\n"
+                  "• `/member-attendance <member>` - View member's attendance history\n"
+                  "• `/event-list` - List all events with RSVP counts\n"
+                  "• `/event-finish <event_id>` - Complete event and record attendance",
+            inline=False
+        )
+        
+        analytics_embed.add_field(
+            name="📊 Analytics Features",
+            value="• **Attendance Rates** - Track member participation\n"
+                  "• **RSVP Analysis** - View response patterns\n"
+                  "• **Event Performance** - Measure event success\n"
+                  "• **Member Engagement** - Individual attendance tracking\n"
+                  "• **Historical Data** - Long-term attendance trends",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=analytics_embed, ephemeral=True)
     
     @discord.ui.button(label="📧 Event Commands", style=discord.ButtonStyle.secondary, row=1)
     async def event_commands(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2185,18 +2239,18 @@ class EventsModuleView(ModernMenuView):
         
         # Officer commands
         officer_commands = [
-            "`/create_event` • Create a new event",
-            "`/invite_to_event` • Invite users/roles to events",
-            "`/send_event_dms` • Send DM invitations",
-            "`/event_rsvps` • View RSVPs for an event",
-            "`/event_analytics` • View event statistics"
+            "`/event-create` • Create a new event with invitations",
+            "`/event-invite` • Send invitations for existing events", 
+            "`/event-list` • List all active events",
+            "`/event-attendance` • View attendance for events",
+            "`/event-finish` • Complete event and record attendance"
         ]
         
         # User commands
         user_commands = [
             "`/rsvp` • Respond to event invitations",
-            "`/event_details` • View event information",
-            "`/list_events` • See all active events"
+            "`/event-details` • View event information", 
+            "`/member-attendance` • View personal attendance history"
         ]
         
         commands_embed.add_field(
@@ -2212,9 +2266,9 @@ class EventsModuleView(ModernMenuView):
         )
         
         commands_embed.add_field(
-            name="💡 Tips",
-            value="• Use `/list_events` to find event IDs\n"
-                  "• Events support categories and locations\n"
+            name="📊 Tips", 
+            value="• Use `/event-list` to find event IDs\n"
+                  "• Events support natural time parsing ('tomorrow 8pm')\n"
                   "• Automatic reminders are sent before events\n"
                   "• RSVPs can include optional notes",
             inline=False

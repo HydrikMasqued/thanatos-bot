@@ -6,6 +6,7 @@ import json
 from typing import Optional, List, Dict, Any
 import logging
 from utils.smart_time_formatter import SmartTimeFormatter
+from utils.advanced_timestamp_parser import AdvancedTimestampParser
 
 logger = logging.getLogger(__name__)
 
@@ -447,20 +448,26 @@ class EventSystem(commands.Cog):
             return
         
         try:
-            # Parse the date/time using smart formatter
-            parsed_datetime = SmartTimeFormatter.parse_natural_language_time(date_time)
+            # Parse the date/time using advanced timestamp parser
+            timestamp_result = AdvancedTimestampParser.parse_any_timestamp(date_time, context="event")
             
-            # Fall back to existing time parser if smart formatter fails
-            if not parsed_datetime and hasattr(self.bot, 'time_parser'):
-                parsed_datetime = self.bot.time_parser.parse_natural_datetime(date_time)
-            
-            if not parsed_datetime:
-                await interaction.response.send_message(
-                    f"❌ Could not parse date/time: '{date_time}'\n"
-                    f"Try formats like: 'today in 3 hours', 'tomorrow 8pm', 'friday 7:30pm', 'january 15 8pm', '2024-01-15 20:00'",
-                    ephemeral=True
-                )
+            if not timestamp_result or not timestamp_result['is_valid']:
+                # Create a helpful error message with examples
+                error_msg = f"❌ Could not parse date/time: '{date_time}'"
+                if timestamp_result and timestamp_result.get('error'):
+                    error_msg += f"\nError: {timestamp_result['error']}"
+                
+                error_msg += "\n\n📅 **Supported formats:**\n"
+                error_msg += "• **Natural language:** 'tomorrow 8pm', 'next friday 7:30pm', 'january 15 at 8pm'\n"
+                error_msg += "• **Relative time:** 'in 2 hours', '3 days from now', 'today in 4 hours'\n"
+                error_msg += "• **Standard formats:** '2024-01-15 20:00', '1/15/2024 8:00 PM'\n"
+                error_msg += "• **Discord timestamps:** '<t:1704670800:F>' (from Discord)\n"
+                error_msg += "• **Event-specific:** 'starts at 8pm tomorrow', 'scheduled for friday'"
+                
+                await interaction.response.send_message(error_msg, ephemeral=True)
                 return
+            
+            parsed_datetime = timestamp_result['datetime']
             
             # Validate the event time
             is_valid, error_message = SmartTimeFormatter.validate_event_time(parsed_datetime)
@@ -510,9 +517,19 @@ class EventSystem(commands.Cog):
             )
             
             embed.add_field(name="📝 Description", value=description, inline=False)
+            
+            # Show multiple timestamp formats for user convenience
+            timestamp_formats = AdvancedTimestampParser.suggest_timestamp_formats(parsed_datetime)
+            date_time_value = f"{timestamp_formats['full_long']} ({timestamp_formats['relative']})"
+            
+            # Add parsing information if available
+            if timestamp_result.get('source_format') and timestamp_result.get('confidence'):
+                confidence_emoji = "🎯" if timestamp_result['confidence'] >= 0.9 else "✅" if timestamp_result['confidence'] >= 0.7 else "⚠️"
+                date_time_value += f"\n{confidence_emoji} *Parsed from: {timestamp_result['source_format']} (confidence: {timestamp_result['confidence']:.0%})*"
+            
             embed.add_field(
                 name="📅 Date & Time", 
-                value=f"<t:{int(parsed_datetime.timestamp())}:F> (<t:{int(parsed_datetime.timestamp())}:R>)", 
+                value=date_time_value, 
                 inline=False
             )
             
