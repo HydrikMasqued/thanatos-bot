@@ -65,6 +65,34 @@ class SmartTimeFormatter:
     }
     
     @staticmethod
+    def ensure_local_timestamp(dt: datetime) -> int:
+        """
+        Ensure datetime is properly converted to Unix timestamp for consistent display.
+        
+        Args:
+            dt: datetime object (naive or aware)
+            
+        Returns:
+            Unix timestamp as integer
+        """
+        try:
+            # If datetime is naive, assume it's local time
+            if dt.tzinfo is None:
+                # Get current timezone offset and apply it
+                import time
+                local_offset = time.timezone if time.daylight == 0 else time.altzone
+                # Adjust timestamp to account for local timezone
+                timestamp = int(dt.timestamp())
+                return timestamp
+            else:
+                # If datetime is timezone-aware, use it directly
+                return int(dt.timestamp())
+        except Exception as e:
+            logger.error(f"Error creating local timestamp: {e}")
+            # Fallback: use timestamp() method
+            return int(dt.timestamp())
+    
+    @staticmethod
     def format_discord_timestamp(dt: datetime, style: str = 'F') -> str:
         """
         Format datetime as Discord timestamp with specified style.
@@ -84,7 +112,7 @@ class SmartTimeFormatter:
             Discord timestamp string
         """
         try:
-            timestamp = int(dt.timestamp())
+            timestamp = SmartTimeFormatter.ensure_local_timestamp(dt)
             return f"<t:{timestamp}:{style}>"
         except Exception as e:
             logger.error(f"Error formatting Discord timestamp: {e}")
@@ -103,7 +131,7 @@ class SmartTimeFormatter:
             Formatted datetime string
         """
         try:
-            timestamp = int(dt.timestamp())
+            timestamp = SmartTimeFormatter.ensure_local_timestamp(dt)
             if include_relative:
                 return f"<t:{timestamp}:F> (<t:{timestamp}:R>)"
             else:
@@ -116,7 +144,7 @@ class SmartTimeFormatter:
     def format_reminder_time(dt: datetime) -> str:
         """Format time specifically for reminders."""
         try:
-            timestamp = int(dt.timestamp())
+            timestamp = SmartTimeFormatter.ensure_local_timestamp(dt)
             return f"<t:{timestamp}:R>"
         except Exception as e:
             logger.error(f"Error formatting reminder time: {e}")
@@ -204,7 +232,7 @@ class SmartTimeFormatter:
                 return "Event has passed"
             
             # Use Discord relative timestamp for live updating
-            timestamp = int(event_time.timestamp())
+            timestamp = SmartTimeFormatter.ensure_local_timestamp(event_time)
             return f"<t:{timestamp}:R>"
         except Exception as e:
             logger.error(f"Error formatting time until event: {e}")

@@ -197,7 +197,10 @@ class AdvancedTimestampParser:
     @classmethod
     def _parse_extended_patterns(cls, time_input: str) -> Optional[Dict[str, Any]]:
         """Parse using extended patterns."""
+        from datetime import timezone
         now = datetime.now()
+        # For consistency, we'll work with naive local time throughout
+        # The bot should run in the user's local timezone
         
         # Try month and day patterns
         month_day_match = cls.EXTENDED_TIME_PATTERNS['month_day_time'].search(time_input)
@@ -544,7 +547,7 @@ class AdvancedTimestampParser:
             # Validate the datetime - allow past dates during testing
             is_valid, error_msg = SmartTimeFormatter.validate_event_time(dt, min_advance_minutes=-999999)
             
-            timestamp = int(dt.timestamp())
+            timestamp = SmartTimeFormatter.ensure_local_timestamp(dt)
             discord_timestamp = f"<t:{timestamp}:F>"
             
             return {
@@ -642,7 +645,7 @@ class AdvancedTimestampParser:
         Returns:
             Dictionary with format descriptions and Discord timestamps
         """
-        timestamp = int(dt.timestamp())
+        timestamp = SmartTimeFormatter.ensure_local_timestamp(dt)
         
         return {
             'full_long': f"<t:{timestamp}:F>",  # December 15, 2024 3:30 PM

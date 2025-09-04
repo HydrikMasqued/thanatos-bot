@@ -23,17 +23,17 @@ class EventDropdownView(discord.ui.View):
         # Create dropdown
         options = []
         for event in events[:25]:  # Discord limit
-            # Format date for display using smart formatter
+            # Format date for display - use readable format, NOT Discord timestamp
             event_date = ""
             if event.get('event_date'):
                 if isinstance(event['event_date'], str):
                     try:
                         dt = datetime.fromisoformat(event['event_date'].replace('Z', '+00:00'))
-                        event_date = f" - {SmartTimeFormatter.format_discord_timestamp(dt, 'f')}"
+                        event_date = f" - {dt.strftime('%m/%d %I:%M %p')}"
                     except:
                         event_date = f" - {event['event_date']}"
                 elif isinstance(event['event_date'], datetime):
-                    event_date = f" - {SmartTimeFormatter.format_discord_timestamp(event['event_date'], 'f')}"
+                    event_date = f" - {event['event_date'].strftime('%m/%d %I:%M %p')}"
             
             options.append(discord.SelectOption(
                 label=f"{event['event_name'][:50]}{event_date}"[:100],
