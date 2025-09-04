@@ -17,41 +17,78 @@ class AdvancedTimestampParser:
     # Discord timestamp pattern (recognizes existing Discord timestamps)
     DISCORD_TIMESTAMP_PATTERN = re.compile(r'<t:(\d+):([FfDdTtRr])>', re.IGNORECASE)
     
-    # Extended natural language patterns
+    # Extended natural language patterns with enhanced flexibility
     EXTENDED_TIME_PATTERNS = {
         # Time with specific dates
         'on_date_at_time': re.compile(r'\bon\s+(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\s+(?:at\s+)?(\d{1,2}):?(\d{2})?\s*(am|pm)?\b', re.IGNORECASE),
         'date_at_time': re.compile(r'(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\s+(?:at\s+)?(\d{1,2}):?(\d{2})?\s*(am|pm)?\b', re.IGNORECASE),
         
+        # Enhanced today/tomorrow patterns with flexible time
+        'today_anytime': re.compile(r'\btoday(?:\s+(?:anytime|any\s+time|at\s+any\s+time))?\b', re.IGNORECASE),
+        'tomorrow_anytime': re.compile(r'\btomorrow(?:\s+(?:anytime|any\s+time|at\s+any\s+time))?\b', re.IGNORECASE),
+        'today_flexible_time': re.compile(r'\btoday(?:\s+(?:at|around|about)?\s*)?(\d{1,2})(?:[:.](\d{2})?)?\s*(am|pm)?\b', re.IGNORECASE),
+        'tomorrow_flexible_time': re.compile(r'\btomorrow(?:\s+(?:at|around|about)?\s*)?(\d{1,2})(?:[:.](\d{2})?)?\s*(am|pm)?\b', re.IGNORECASE),
+        
+        # Enhanced week patterns with flexible interpretation
+        'next_week_flexible': re.compile(r'\bnext\s+week(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        'this_week_flexible': re.compile(r'\bthis\s+week(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        'last_week_flexible': re.compile(r'\blast\s+week(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        'end_of_week_flexible': re.compile(r'\bend\s+of\s+(?:this\s+|the\s+)?week\b', re.IGNORECASE),
+        'beginning_of_week': re.compile(r'\b(?:beginning|start)\s+of\s+(?:this\s+|the\s+|next\s+)?week\b', re.IGNORECASE),
+        
+        # Enhanced month patterns
+        'next_month_flexible': re.compile(r'\bnext\s+month(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        'this_month_flexible': re.compile(r'\bthis\s+month(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        'end_of_month_flexible': re.compile(r'\bend\s+of\s+(?:this\s+|the\s+|next\s+)?month\b', re.IGNORECASE),
+        'beginning_of_month': re.compile(r'\b(?:beginning|start)\s+of\s+(?:this\s+|the\s+|next\s+)?month\b', re.IGNORECASE),
+        
         # Month and day patterns
         'month_day': re.compile(r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?\b', re.IGNORECASE),
         'month_day_time': re.compile(r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(?:at\s+)?(\d{1,2}):?(\d{2})?\s*(am|pm)?\b', re.IGNORECASE),
         
-        # Day of week with time
+        # Enhanced weekday patterns with more flexibility
+        'weekday_flexible': re.compile(r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        'next_weekday_flexible': re.compile(r'\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        'this_weekday_flexible': re.compile(r'\bthis\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        'last_weekday_flexible': re.compile(r'\blast\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:\s+(?:anytime|any\s+time|sometime))?\b', re.IGNORECASE),
+        
+        # Day of week with time (keeping existing patterns)
         'weekday_at_time': re.compile(r'\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(?:at\s+)?(\d{1,2}):?(\d{2})?\s*(am|pm)?\b', re.IGNORECASE),
         'next_weekday_at_time': re.compile(r'\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(?:at\s+)?(\d{1,2}):?(\d{2})?\s*(am|pm)?\b', re.IGNORECASE),
         
-        # Relative time with specific amounts
+        # Enhanced relative time patterns
+        'soon_flexible': re.compile(r'\b(?:soon|later|sometime\s+(?:today|soon))\b', re.IGNORECASE),
+        'later_today': re.compile(r'\blater(?:\s+today)?\b', re.IGNORECASE),
+        'sometime_this_week': re.compile(r'\bsometime\s+this\s+week\b', re.IGNORECASE),
+        'sometime_next_week': re.compile(r'\bsometime\s+next\s+week\b', re.IGNORECASE),
+        
+        # Existing relative time patterns
         'x_hours_from_now': re.compile(r'\b(\d+)\s+hours?\s+from\s+now\b', re.IGNORECASE),
         'x_minutes_from_now': re.compile(r'\b(\d+)\s+(?:minutes?|mins?)\s+from\s+now\b', re.IGNORECASE),
         'x_days_from_now': re.compile(r'\b(\d+)\s+days?\s+from\s+now\b', re.IGNORECASE),
         'x_weeks_from_now': re.compile(r'\b(\d+)\s+weeks?\s+from\s+now\b', re.IGNORECASE),
         
-        # Specific time formats
+        # Enhanced time of day patterns
+        'morning_flexible': re.compile(r'\b(?:this\s+|tomorrow\s+|next\s+)?(?:morning|am)(?:\s+sometime)?\b', re.IGNORECASE),
+        'afternoon_flexible': re.compile(r'\b(?:this\s+|tomorrow\s+|next\s+)?(?:afternoon|pm)(?:\s+sometime)?\b', re.IGNORECASE),
+        'evening_flexible': re.compile(r'\b(?:this\s+|tomorrow\s+|next\s+)?evening(?:\s+sometime)?\b', re.IGNORECASE),
+        'night_flexible': re.compile(r'\b(?:this\s+|tomorrow\s+|next\s+)?(?:night|tonight)(?:\s+sometime)?\b', re.IGNORECASE),
+        
+        # Specific time formats (keeping existing)
         'just_time': re.compile(r'\b(\d{1,2}):(\d{2})\s*(am|pm)?\b', re.IGNORECASE),
         'military_time': re.compile(r'\b([01]?\d|2[0-3]):([0-5]\d)\b'),
         
-        # Due dates and deadlines
+        # Due dates and deadlines (keeping existing)
         'due_by': re.compile(r'\bdue\s+by\s+(.+)', re.IGNORECASE),
         'deadline': re.compile(r'\bdeadline:?\s*(.+)', re.IGNORECASE),
         'expires': re.compile(r'\bexpires?\s+(?:on|at)?\s*(.+)', re.IGNORECASE),
         
-        # Event-specific patterns
+        # Event-specific patterns (keeping existing)
         'starts_at': re.compile(r'\bstarts?\s+(?:at|on)\s+(.+)', re.IGNORECASE),
         'begins_at': re.compile(r'\bbegins?\s+(?:at|on)\s+(.+)', re.IGNORECASE),
         'scheduled_for': re.compile(r'\bscheduled\s+for\s+(.+)', re.IGNORECASE),
         
-        # Duration patterns
+        # Duration patterns (keeping existing)
         'in_x_hours_and_y_minutes': re.compile(r'\bin\s+(\d+)\s+hours?\s+(?:and\s+)?(\d+)\s+(?:minutes?|mins?)\b', re.IGNORECASE),
         'for_x_hours': re.compile(r'\bfor\s+(\d+)\s+hours?\b', re.IGNORECASE),
         'lasting_x_minutes': re.compile(r'\blasting\s+(\d+)\s+(?:minutes?|mins?)\b', re.IGNORECASE),
@@ -176,7 +213,163 @@ class AdvancedTimestampParser:
                 except ValueError:
                     pass
         
-        # Try weekday patterns
+        # Try enhanced flexible patterns first
+        
+        # Handle "today" variants (today, today anytime, etc.)
+        if cls.EXTENDED_TIME_PATTERNS['today_anytime'].search(time_input):
+            # Check for specific time in "today" phrase
+            today_time_match = cls.EXTENDED_TIME_PATTERNS['today_flexible_time'].search(time_input)
+            if today_time_match:
+                hour = int(today_time_match.group(1))
+                minute = int(today_time_match.group(2)) if today_time_match.group(2) else 0
+                ampm = today_time_match.group(3)
+                
+                if ampm:
+                    if ampm.lower() == 'pm' and hour != 12:
+                        hour += 12
+                    elif ampm.lower() == 'am' and hour == 12:
+                        hour = 0
+                        
+                parsed_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            else:
+                # Default to current time for "today anytime" or just "today"
+                parsed_dt = now.replace(second=0, microsecond=0)
+            
+            return cls._create_result_dict(parsed_dt, 'today_flexible', time_input, 0.9)
+        
+        # Handle "tomorrow" variants
+        if cls.EXTENDED_TIME_PATTERNS['tomorrow_anytime'].search(time_input):
+            tomorrow = now + timedelta(days=1)
+            
+            # Check for specific time in "tomorrow" phrase
+            tomorrow_time_match = cls.EXTENDED_TIME_PATTERNS['tomorrow_flexible_time'].search(time_input)
+            if tomorrow_time_match:
+                hour = int(tomorrow_time_match.group(1))
+                minute = int(tomorrow_time_match.group(2)) if tomorrow_time_match.group(2) else 0
+                ampm = tomorrow_time_match.group(3)
+                
+                if ampm:
+                    if ampm.lower() == 'pm' and hour != 12:
+                        hour += 12
+                    elif ampm.lower() == 'am' and hour == 12:
+                        hour = 0
+                        
+                parsed_dt = tomorrow.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            else:
+                # Default to noon for "tomorrow anytime" or just "tomorrow"
+                parsed_dt = tomorrow.replace(hour=12, minute=0, second=0, microsecond=0)
+            
+            return cls._create_result_dict(parsed_dt, 'tomorrow_flexible', time_input, 0.9)
+        
+        # Handle flexible week patterns
+        if cls.EXTENDED_TIME_PATTERNS['next_week_flexible'].search(time_input):
+            days_ahead = 7 - now.weekday() + 6  # Next Monday
+            parsed_dt = (now + timedelta(days=days_ahead)).replace(hour=12, minute=0, second=0, microsecond=0)
+            return cls._create_result_dict(parsed_dt, 'next_week_flexible', time_input, 0.8)
+            
+        if cls.EXTENDED_TIME_PATTERNS['this_week_flexible'].search(time_input):
+            days_to_friday = (4 - now.weekday()) % 7  # This Friday
+            parsed_dt = (now + timedelta(days=days_to_friday)).replace(hour=12, minute=0, second=0, microsecond=0)
+            return cls._create_result_dict(parsed_dt, 'this_week_flexible', time_input, 0.8)
+            
+        if cls.EXTENDED_TIME_PATTERNS['end_of_week_flexible'].search(time_input):
+            days_to_sunday = (6 - now.weekday()) % 7
+            if days_to_sunday == 0:  # If today is Sunday
+                days_to_sunday = 7
+            parsed_dt = (now + timedelta(days=days_to_sunday)).replace(hour=17, minute=0, second=0, microsecond=0)  # 5 PM
+            return cls._create_result_dict(parsed_dt, 'end_of_week_flexible', time_input, 0.8)
+            
+        if cls.EXTENDED_TIME_PATTERNS['beginning_of_week'].search(time_input):
+            if 'next' in time_input.lower():
+                days_ahead = 7 - now.weekday() + 6  # Next Monday
+            else:
+                days_ahead = (0 - now.weekday()) % 7  # This Monday
+                if days_ahead == 0 and now.weekday() != 0:  # If not Monday, go to next Monday
+                    days_ahead = 7
+            parsed_dt = (now + timedelta(days=days_ahead)).replace(hour=9, minute=0, second=0, microsecond=0)  # 9 AM
+            return cls._create_result_dict(parsed_dt, 'beginning_of_week', time_input, 0.8)
+        
+        # Handle flexible weekday patterns
+        for pattern_name in ['next_weekday_flexible', 'this_weekday_flexible', 'last_weekday_flexible', 'weekday_flexible']:
+            match = cls.EXTENDED_TIME_PATTERNS[pattern_name].search(time_input)
+            if match:
+                weekday_name = match.group(1).lower()
+                if weekday_name in SmartTimeFormatter.WEEKDAYS:
+                    target_weekday = SmartTimeFormatter.WEEKDAYS[weekday_name]
+                    current_weekday = now.weekday()
+                    
+                    if pattern_name == 'next_weekday_flexible':
+                        days_ahead = target_weekday - current_weekday + 7
+                    elif pattern_name == 'this_weekday_flexible':
+                        days_ahead = target_weekday - current_weekday
+                        if days_ahead <= 0:
+                            days_ahead += 7
+                    elif pattern_name == 'last_weekday_flexible':
+                        days_ahead = target_weekday - current_weekday - 7
+                    else:  # weekday_flexible
+                        days_ahead = target_weekday - current_weekday
+                        if days_ahead <= 0:
+                            days_ahead += 7
+                    
+                    target_date = now + timedelta(days=days_ahead)
+                    parsed_dt = target_date.replace(hour=12, minute=0, second=0, microsecond=0)
+                    return cls._create_result_dict(parsed_dt, pattern_name, time_input, 0.8)
+        
+        # Handle flexible time of day patterns
+        if cls.EXTENDED_TIME_PATTERNS['morning_flexible'].search(time_input):
+            if 'tomorrow' in time_input.lower():
+                target_date = now + timedelta(days=1)
+            else:
+                target_date = now
+            parsed_dt = target_date.replace(hour=9, minute=0, second=0, microsecond=0)
+            return cls._create_result_dict(parsed_dt, 'morning_flexible', time_input, 0.7)
+            
+        if cls.EXTENDED_TIME_PATTERNS['afternoon_flexible'].search(time_input):
+            if 'tomorrow' in time_input.lower():
+                target_date = now + timedelta(days=1)
+            else:
+                target_date = now
+            parsed_dt = target_date.replace(hour=14, minute=0, second=0, microsecond=0)  # 2 PM
+            return cls._create_result_dict(parsed_dt, 'afternoon_flexible', time_input, 0.7)
+            
+        if cls.EXTENDED_TIME_PATTERNS['evening_flexible'].search(time_input):
+            if 'tomorrow' in time_input.lower():
+                target_date = now + timedelta(days=1)
+            else:
+                target_date = now
+            parsed_dt = target_date.replace(hour=18, minute=0, second=0, microsecond=0)  # 6 PM
+            return cls._create_result_dict(parsed_dt, 'evening_flexible', time_input, 0.7)
+            
+        if cls.EXTENDED_TIME_PATTERNS['night_flexible'].search(time_input):
+            if 'tomorrow' in time_input.lower():
+                target_date = now + timedelta(days=1)
+            else:
+                target_date = now
+            parsed_dt = target_date.replace(hour=20, minute=0, second=0, microsecond=0)  # 8 PM
+            return cls._create_result_dict(parsed_dt, 'night_flexible', time_input, 0.7)
+        
+        # Handle "soon" and "later" patterns
+        if cls.EXTENDED_TIME_PATTERNS['soon_flexible'].search(time_input) or cls.EXTENDED_TIME_PATTERNS['later_today'].search(time_input):
+            # "Soon" or "later" means in 1-2 hours from now
+            parsed_dt = now + timedelta(hours=1, minutes=30)
+            return cls._create_result_dict(parsed_dt, 'soon_flexible', time_input, 0.6)
+        
+        # Handle "sometime" patterns
+        if cls.EXTENDED_TIME_PATTERNS['sometime_this_week'].search(time_input):
+            # Middle of the week (Wednesday) at a reasonable time
+            days_to_wednesday = (2 - now.weekday()) % 7
+            if days_to_wednesday == 0:  # If today is Wednesday
+                days_to_wednesday = 1  # Tomorrow instead
+            parsed_dt = (now + timedelta(days=days_to_wednesday)).replace(hour=14, minute=0, second=0, microsecond=0)
+            return cls._create_result_dict(parsed_dt, 'sometime_this_week', time_input, 0.6)
+            
+        if cls.EXTENDED_TIME_PATTERNS['sometime_next_week'].search(time_input):
+            # Next Wednesday at a reasonable time
+            days_ahead = 7 - now.weekday() + 2  # Next Wednesday
+            parsed_dt = (now + timedelta(days=days_ahead)).replace(hour=14, minute=0, second=0, microsecond=0)
+            return cls._create_result_dict(parsed_dt, 'sometime_next_week', time_input, 0.6)
+        
+        # Try original weekday patterns (keeping existing logic)
         weekday_match = cls.EXTENDED_TIME_PATTERNS['next_weekday_at_time'].search(time_input)
         if not weekday_match:
             weekday_match = cls.EXTENDED_TIME_PATTERNS['weekday_at_time'].search(time_input)

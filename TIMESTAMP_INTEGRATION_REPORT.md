@@ -17,10 +17,12 @@ Your Thanatos Bot now has comprehensive Discord timestamp recognition, parsing, 
 
 ### 1. Advanced Timestamp Parser (`utils/advanced_timestamp_parser.py`)
 - **Discord Timestamp Recognition**: Automatically detects and parses existing Discord timestamps
-- **Natural Language Processing**: Understands phrases like "tomorrow 8pm", "next friday", "end of month"
-- **Multi-Format Support**: Handles ISO dates, common formats, and relative time expressions
+- **Enhanced Natural Language Processing**: Understands phrases like "tomorrow 8pm", "next week anytime", "today", "friday afternoon"
+- **Flexible Time Expressions**: Supports "anytime", "sometime", "later", "soon", and contextual phrases
+- **Multi-Format Support**: Handles 60+ different timestamp patterns including ISO dates, natural language, and relative expressions
 - **Context-Aware Parsing**: Different parsing behavior for events vs dues vs general contexts
 - **Confidence Scoring**: Provides accuracy indicators for parsed timestamps
+- **Universal Bot Access**: Easy-to-use utilities available throughout the entire bot
 
 ### 2. Enhanced Event System Integration
 - **Smart Event Creation**: `/event-create` now supports comprehensive timestamp parsing
@@ -39,6 +41,19 @@ Your Thanatos Bot now has comprehensive Discord timestamp recognition, parsing, 
 - **Real-time Updates**: Timestamps automatically update to show relative time
 - **Professional Formatting**: Consistent timestamp display across all menu sections
 
+### 5. Universal Timestamp Utility (`utils/universal_timestamp.py`)
+- **Bot-wide Access**: Simple imports provide timestamp parsing throughout the entire bot
+- **Multiple Import Methods**: Choose from different utility functions based on your needs
+- **Context Detection**: Automatic context detection for smart parsing
+- **Easy Integration**: One-line imports for any cog or module
+- **Comprehensive Examples**: Built-in help system and format examples
+
+### 6. Demonstration System (`cogs/timestamp_demo.py`)
+- **Live Examples**: Interactive commands to test parsing capabilities
+- **Integration Guide**: Shows how to use utilities in any cog
+- **Format Explorer**: Browse all supported timestamp formats
+- **Validation Tools**: Test time string validity and parsing results
+
 ---
 
 ## 📋 Supported Input Formats
@@ -51,6 +66,30 @@ Your Thanatos Bot now has comprehensive Discord timestamp recognition, parsing, 
 - "end of month"
 - "in 2 hours"
 - "3 days from now"
+```
+
+### Flexible Time Expressions (NEW!)
+```
+- "today" or "today anytime"
+- "tomorrow" or "tomorrow anytime"
+- "next week" or "next week anytime"
+- "this week" or "this week sometime"
+- "friday" or "friday anytime"
+- "monday sometime"
+- "end of week"
+- "beginning of week"
+- "soon" or "later"
+- "sometime this week"
+- "sometime next week"
+```
+
+### Time of Day Expressions (NEW!)
+```
+- "this morning" or "tomorrow morning"
+- "this afternoon" or "next afternoon"
+- "tonight" or "this evening"
+- "morning sometime"
+- "afternoon sometime"
 ```
 
 ### Event-Specific Phrases
@@ -163,23 +202,90 @@ When timestamp parsing fails, users now receive:
 
 ## 🎮 Usage Examples
 
-### Event Creation
+### Enhanced Natural Language Examples
+
+#### Flexible Time Expressions
+```
+/event-create name:"Team Meeting" date_time:"next week anytime" description:"Flexible timing"
+```
+**Result:** Event created for next Monday at 12:00 PM
+
+```
+/event-create name:"Standup" date_time:"tomorrow morning" description:"Daily standup"
+```
+**Result:** Event created for tomorrow at 9:00 AM
+
+```
+/dues_create_period period_name:"Q1 2024" due_amount:25.00 due_date:"end of week"
+```
+**Result:** Due date set to this Sunday at 5:00 PM
+
+#### Classic Examples (Still Supported)
 ```
 /event-create name:"Team Meeting" date_time:"tomorrow 3pm" description:"Weekly sync"
 ```
 **Result:** Event created with Discord timestamp showing "Tomorrow at 3:00 PM (in 19 hours)"
 
-### Dues Period Creation
 ```
 /dues_create_period period_name:"Q1 2024" due_amount:25.00 due_date:"end of march"
 ```
 **Result:** Period created with due date showing "March 31, 2024 (in 2 months)"
 
-### Payment Recording
 ```
 /dues_update_payment member:@Jay payment_date:"last friday" amount_paid:25.00
 ```
 **Result:** Payment recorded with date showing "December 8, 2024 (4 days ago)"
+
+### Bot-wide Integration Examples
+
+#### Simple One-Line Usage
+```python
+# In any cog file:
+from utils.universal_timestamp import parse_time
+
+# Parse any natural language time
+event_time = parse_time("tomorrow 8pm")  # Returns datetime object
+due_date = parse_time("next week anytime")  # Returns datetime object
+meeting_time = parse_time("friday afternoon")  # Returns datetime object
+```
+
+#### Context-Specific Parsing
+```python
+# Import context-specific utilities
+from utils.universal_timestamp import parse_event, parse_due
+
+# These automatically use appropriate context for better parsing
+event_time = parse_event("starts at 8pm tomorrow")
+due_date = parse_due("due by end of month")
+```
+
+#### Full Feature Usage
+```python
+# Import the full utility class
+from utils.universal_timestamp import UniversalTimestamp
+
+# Get detailed parsing information
+result = UniversalTimestamp.parse("next week anytime")
+if result['is_valid']:
+    datetime_obj = result['datetime']
+    discord_timestamp = result['discord_timestamp']
+    confidence = result['confidence']
+    source_format = result['source_format']
+```
+
+#### Validation and Error Handling
+```python
+from utils.universal_timestamp import validate_time
+
+# Validate and parse with error handling
+is_valid, parsed_dt, error_msg = validate_time("tomorrow anytime")
+if is_valid:
+    # Use parsed_dt datetime object
+    await create_event(name, parsed_dt)
+else:
+    # Show error_msg to user
+    await interaction.response.send_message(f"Error: {error_msg}")
+```
 
 ---
 
