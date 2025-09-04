@@ -41,6 +41,12 @@ class ThanatosBot(commands.Bot):
             help_command=None
         )
         
+        # Load configuration
+        self.config = self._load_config()
+        
+        # Set force sync option from config
+        self._force_sync_on_startup = self.config.get('force_sync_on_startup', False)
+        
         # Bot owners with total control (add user IDs here)
         self.bot_owners = {
             181143017619587073,  # User with total bot control
@@ -83,6 +89,19 @@ class ThanatosBot(commands.Bot):
             logger.error(f"Failed to initialize precise reminder system: {e}")
             raise
     
+    def _load_config(self):
+        """Load configuration from config.json"""
+        try:
+            if os.path.exists('config.json'):
+                with open('config.json', 'r') as f:
+                    return json.load(f)
+            else:
+                logger.warning("config.json not found, using default settings")
+                return {}
+        except Exception as e:
+            logger.error(f"Failed to load config.json: {e}")
+            return {}
+    
     def is_bot_owner(self, user_id: int) -> bool:
         """Check if a user is a bot owner with total control"""
         return user_id in self.bot_owners
@@ -100,7 +119,7 @@ class ThanatosBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to initialize database in setup hook: {e}")
         
-        cogs = ['cogs.loa_system', 'cogs.membership', 'cogs.contributions', 'cogs.configuration', 'cogs.direct_messaging', 'cogs.database_management', 'cogs.audit_logs', 'cogs.events', 'cogs.event_notepad', 'cogs.dues_tracking', 'cogs.prospect_core', 'cogs.prospect_dashboard', 'cogs.prospect_notifications']
+        cogs = ['cogs.loa_system', 'cogs.membership', 'cogs.contributions', 'cogs.configuration', 'cogs.direct_messaging', 'cogs.database_management', 'cogs.audit_logs', 'cogs.events', 'cogs.event_notepad', 'cogs.dues_tracking', 'cogs.prospect_core', 'cogs.prospect_dashboard', 'cogs.prospect_notifications', 'cogs.enhanced_menu_system', 'cogs.timestamp_demo']
         
         for cog in cogs:
             try:
@@ -146,10 +165,28 @@ class ThanatosBot(commands.Bot):
             logger.info("Event reminder check task already running")
             self._event_task_started = True
         
-        # Sync commands
+        # Sync commands (force sync if configured)
         try:
-            synced = await self.tree.sync()
-            logger.info(f"Synced {len(synced)} slash command(s)")
+            # Check if force sync is enabled in config
+            force_sync = getattr(self, '_force_sync_on_startup', False)
+            
+            if force_sync:
+                # Force sync globally
+                synced_global = await self.tree.sync()
+                logger.info(f"Force synced {len(synced_global)} global slash command(s)")
+                
+                # Force sync for each guild
+                for guild in self.guilds:
+                    try:
+                        synced_guild = await self.tree.sync(guild=guild)
+                        logger.info(f"Force synced {len(synced_guild)} commands for guild {guild.name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to sync commands for guild {guild.name}: {e}")
+            else:
+                # Normal sync
+                synced = await self.tree.sync()
+                logger.info(f"Synced {len(synced)} slash command(s)")
+                
         except Exception as e:
             logger.error(f"Failed to sync commands: {e}")
     
