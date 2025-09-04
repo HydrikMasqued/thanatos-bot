@@ -655,40 +655,6 @@ class EventSystem(commands.Cog):
                 ephemeral=True
             )
 
-    @app_commands.command(name="event-rsvp", description="View RSVP responses for an event")
-    async def view_event_rsvp(self, interaction: discord.Interaction):
-        """View RSVP responses via dropdown selection"""
-        if not await self.check_officer_permissions(interaction):
-            return
-        
-        try:
-            # Get active events
-            events = await self.db.get_active_events(interaction.guild.id)
-            
-            if not events:
-                await interaction.response.send_message(
-                    "❌ No active events found.",
-                    ephemeral=True
-                )
-                return
-            
-            # Show event selection dropdown
-            view = EventDropdownView(events, "view_rsvp", self.bot)
-            
-            embed = discord.Embed(
-                title="📊 View Event RSVPs",
-                description="Select an event to view RSVP responses:",
-                color=0x0099FF
-            )
-            
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-            
-        except Exception as e:
-            logger.error(f"Error in RSVP view command: {e}")
-            await interaction.response.send_message(
-                "❌ An error occurred while retrieving RSVP data.",
-                ephemeral=True
-            )
 
     @app_commands.command(name="event-cancel", description="Cancel an active event")
     async def cancel_event(self, interaction: discord.Interaction):

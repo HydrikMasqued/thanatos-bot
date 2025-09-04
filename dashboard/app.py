@@ -300,6 +300,51 @@ def index():
         
     return render_template('index.html', user=session['user'])
 
+@app.route('/api/treasury')
+@requires_auth
+def api_treasury():
+    """API endpoint to get treasury summary"""
+    try:
+        # Get the guild ID from the user session (assuming it's stored there)
+        # If not, you may need to adjust this to get the target guild ID
+        guild_id = TARGET_GUILD_ID  # Use your target guild ID
+        
+        # Get treasury summary using the database manager
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            treasury_data = loop.run_until_complete(
+                dashboard.db.get_treasury_summary(guild_id)
+            )
+        finally:
+            loop.close()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'total_collected': treasury_data.get('total_collected', 0.0),
+                'outstanding_amount': treasury_data.get('outstanding_amount', 0.0),
+                'collection_percentage': treasury_data.get('collection_percentage', 0.0),
+                'active_periods': treasury_data.get('active_periods_count', 0),
+                'recent_period': treasury_data.get('recent_period_name', 'N/A')
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting treasury data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'data': {
+                'total_collected': 0.0,
+                'outstanding_amount': 0.0,
+                'collection_percentage': 0.0,
+                'active_periods': 0,
+                'recent_period': 'N/A'
+            }
+        })
+
 @app.route('/login')
 def login():
     """Discord OAuth2 login"""

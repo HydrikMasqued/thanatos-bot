@@ -32,88 +32,6 @@ class TimestampDemo(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    @app_commands.command(name="parse-time", description="Demo: Parse any natural language time expression")
-    @app_commands.describe(time_input="Natural language time (e.g., 'tomorrow 8pm', 'next week anytime', 'today')")
-    async def parse_time_demo(self, interaction: discord.Interaction, time_input: str):
-        """Demonstrate parsing any time expression."""
-        
-        # Multiple ways to parse - choose what works best for your use case
-        
-        # Method 1: Simple parsing (just get datetime)
-        parsed_dt = parse_time(time_input)
-        
-        # Method 2: Full parsing with details
-        full_result = UniversalTimestamp.parse(time_input)
-        
-        # Method 3: Context-specific parsing
-        event_dt = parse_event(time_input)
-        due_dt = parse_due(time_input)
-        
-        embed = discord.Embed(
-            title="🕐 Universal Time Parser Demo",
-            description=f"**Input:** `{time_input}`",
-            color=0x00D4FF
-        )
-        
-        if parsed_dt:
-            # Show all the different timestamp formats
-            formats = UniversalTimestamp.get_all_formats(parsed_dt)
-            
-            embed.add_field(
-                name="✅ Parsing Success",
-                value=f"**Datetime:** {parsed_dt.strftime('%B %d, %Y at %I:%M %p')}\n"
-                      f"**Discord Timestamp:** {formats['full_long']}\n"
-                      f"**Relative:** {formats['relative']}",
-                inline=False
-            )
-            
-            if full_result:
-                confidence = full_result.get('confidence', 0)
-                source_format = full_result.get('source_format', 'unknown')
-                
-                confidence_emoji = "🎯" if confidence >= 0.9 else "✅" if confidence >= 0.7 else "⚠️"
-                
-                embed.add_field(
-                    name="📊 Parsing Details", 
-                    value=f"{confidence_emoji} **Confidence:** {confidence:.0%}\n"
-                          f"🔍 **Source Format:** {source_format}\n"
-                          f"🎯 **Context Used:** General",
-                    inline=True
-                )
-            
-            # Show different format options
-            embed.add_field(
-                name="🎨 All Discord Formats",
-                value=f"**Full:** {formats['full_long']}\n"
-                      f"**Date:** {formats['date_long']}\n" 
-                      f"**Time:** {formats['time_short']}\n"
-                      f"**Relative:** {formats['relative']}",
-                inline=True
-            )
-            
-            # Show context-specific results if different
-            context_results = []
-            if event_dt and event_dt != parsed_dt:
-                context_results.append(f"**Event context:** {format_discord(event_dt, 'F')}")
-            if due_dt and due_dt != parsed_dt:
-                context_results.append(f"**Dues context:** {format_discord(due_dt, 'F')}")
-                
-            if context_results:
-                embed.add_field(
-                    name="🎯 Context-Specific Results",
-                    value="\n".join(context_results),
-                    inline=False
-                )
-                
-        else:
-            embed.add_field(
-                name="❌ Parsing Failed",
-                value=f"Could not parse: `{time_input}`\n\n{get_help('general')[:500]}...",
-                inline=False
-            )
-        
-        embed.set_footer(text="Universal Timestamp Parser • Supports 60+ time formats")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @app_commands.command(name="time-examples", description="Show examples of supported time formats")
     async def time_examples(self, interaction: discord.Interaction):
@@ -173,7 +91,7 @@ class TimestampDemo(commands.Cog):
             inline=False
         )
         
-        embed.set_footer(text="Try `/parse-time` with any of these examples!")
+        embed.set_footer(text="Try the time examples with any event creation commands!")
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @app_commands.command(name="validate-time", description="Check if a time string is valid")

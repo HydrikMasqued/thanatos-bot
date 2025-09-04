@@ -146,11 +146,11 @@
                             <div class="card-body">
                                 <div class="d-flex justify-content-between">
                                     <div>
-                                        <h5 class="card-title">Contributions Today</h5>
-                                        <h2 id="contrib-count">0</h2>
+                                        <h5 class="card-title">Club Treasury</h5>
+                                        <h2 id="treasury-amount">$0.00</h2>
                                     </div>
                                     <div class="align-self-center">
-                                        <i class="fas fa-box fa-2x"></i>
+                                        <i class="fas fa-dollar-sign fa-2x"></i>
                                     </div>
                                 </div>
                             </div>
@@ -305,8 +305,56 @@
         });
         
         function loadDashboardStats() {
-            // This would make API calls to get real stats
-            // For now, just update with mock data
+            // Load treasury data
+            loadTreasuryData();
+        }
+        
+        function loadTreasuryData() {
+            fetch('/api/treasury')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const treasuryElement = document.getElementById('treasury-amount');
+                        const amount = data.data.total_collected;
+                        
+                        // Format the amount as currency
+                        const formatted = new Intl.NumberFormat('en-US', {
+                            style: 'currency',
+                            currency: 'USD',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                        }).format(amount);
+                        
+                        treasuryElement.textContent = formatted;
+                        
+                        // Update card color based on collection percentage
+                        const card = treasuryElement.closest('.card');
+                        const percentage = data.data.collection_percentage;
+                        
+                        if (percentage >= 80) {
+                            card.className = 'card bg-success text-white';
+                        } else if (percentage >= 50) {
+                            card.className = 'card bg-warning text-white';
+                        } else {
+                            card.className = 'card bg-danger text-white';
+                        }
+                        
+                        // Add tooltip with more details
+                        treasuryElement.title = 
+                            `Total Collected: ${formatted}\n` +
+                            `Collection Rate: ${percentage}%\n` +
+                            `Outstanding: $${data.data.outstanding_amount}\n` +
+                            `Active Periods: ${data.data.active_periods}\n` +
+                            `Recent Period: ${data.data.recent_period}`;
+                    } else {
+                        console.error('Failed to load treasury data:', data.error);
+                        document.getElementById('treasury-amount').textContent = '$0';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading treasury data:', error);
+                    document.getElementById('treasury-amount').textContent = 'Error';
+                });
         }
         
         function updateLastSync() {

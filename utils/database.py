@@ -2621,6 +2621,87 @@ class DatabaseManager:
             logger.error(f"Failed to get dues collection summary: {e}")
             return {}
     
+    async def get_treasury_summary(self, guild_id: int) -> Dict:
+        """Get overall treasury summary across all active dues periods"""
+        try:
+            conn = await self._get_shared_connection()
+            conn.row_factory = aiosqlite.Row
+            
+            # Get all active dues periods for the guild
+            cursor = await conn.execute('''
+                SELECT * FROM dues_periods 
+                WHERE guild_id = ? AND is_active = TRUE
+                ORDER BY created_at DESC
+            ''', (guild_id,))
+            
+            periods = [dict(row) for row in await cursor.fetchall()]
+            
+            if not periods:
+                return {
+                    'total_collected': 0.0,
+                    'total_expected': 0.0,
+                    'outstanding_amount': 0.0,
+                    'active_periods_count': 0,
+                    'recent_period_name': None,
+                    'collection_percentage': 0.0
+                }
+            
+            # Get aggregated payment statistics across all active periods
+            period_ids = [period['id'] for period in periods]
+            placeholders = ','.join(['?' for _ in period_ids])
+            
+            cursor = await conn.execute(f'''
+                SELECT 
+                    COUNT(DISTINCT m.user_id) as total_members,
+                    COALESCE(SUM(dp.amount_paid), 0) as total_collected,
+                    COUNT(CASE WHEN dp.payment_status = 'paid' THEN 1 END) as total_paid,
+                    COUNT(CASE WHEN dp.payment_status IN ('unpaid', 'partial') THEN 1 END) as total_outstanding_members
+                FROM members m
+                LEFT JOIN dues_payments dp ON m.guild_id = dp.guild_id AND m.user_id = dp.user_id 
+                    AND dp.dues_period_id IN ({placeholders})
+                WHERE m.guild_id = ? AND m.status = 'Active'
+            ''', (*period_ids, guild_id))
+            
+            stats = dict(await cursor.fetchone())
+            
+            # Calculate total expected across all periods
+            total_expected = 0.0
+            for period in periods:
+                # For each period, multiply the due amount by the number of active members
+                total_expected += period['due_amount'] * stats['total_members']
+            
+            # Calculate outstanding amount
+            outstanding_amount = max(0, total_expected - stats['total_collected'])
+            
+            # Calculate collection percentage
+            collection_percentage = 0.0
+            if total_expected > 0:
+                collection_percentage = (stats['total_collected'] / total_expected) * 100
+            
+            # Get the most recent period name for display
+            recent_period_name = periods[0]['period_name'] if periods else None
+            
+            return {
+                'total_collected': round(stats['total_collected'], 2),
+                'total_expected': round(total_expected, 2),
+                'outstanding_amount': round(outstanding_amount, 2),
+                'active_periods_count': len(periods),
+                'recent_period_name': recent_period_name,
+                'collection_percentage': round(collection_percentage, 1),
+                'periods': periods  # Include period details for reference
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get treasury summary for guild {guild_id}: {e}")
+            return {
+                'total_collected': 0.0,
+                'total_expected': 0.0,
+                'outstanding_amount': 0.0,
+                'active_periods_count': 0,
+                'recent_period_name': None,
+                'collection_percentage': 0.0
+            }
+    
     async def reset_dues_period(self, guild_id: int, dues_period_id: int, reset_by_id: int) -> bool:
         """Reset all payments for a dues period (manual reset)"""
         try:

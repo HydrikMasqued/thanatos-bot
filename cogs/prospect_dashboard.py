@@ -26,6 +26,9 @@ try:
 except Exception:
     pass  # Continue even if path manipulation fails
 
+# Set up logger first
+logger = logging.getLogger(__name__)
+
 # Try to import utils.permissions with error handling and fallback
 try:
     from utils.permissions import has_required_permissions
@@ -40,8 +43,6 @@ except ImportError as e:
     async def has_required_permissions(interaction, required_permissions=None, allowed_roles=None, bot_owner_override=True):
         """Dummy permissions function - ALLOWS ALL ACCESS"""
         return True
-
-logger = logging.getLogger(__name__)
 
 class ProspectSelectionView(discord.ui.View):
     """View for selecting prospects from dropdowns"""
