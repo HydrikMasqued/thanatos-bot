@@ -3,8 +3,9 @@ THANATOS BOT DEPLOYMENT SUMMARY
 
 ✅ GITHUB UPDATE COMPLETED
 - Repository: https://github.com/HydrikMasqued/thanatos-bot.git
-- Commit: cbcc78d - Major Update: V2 Systems Implementation
+- Commit: fd5a661 - Fix: Update cog loading to use V2 systems
 - All changes pushed successfully
+- CRITICAL FIX: Updated main.py to load V2 systems properly
 
 📁 FILES TO UPLOAD TO SFTP SERVER:
 
@@ -65,8 +66,8 @@ Old Systems (Replaced by V2):
 4. Update dependencies: pip install -r requirements.txt --upgrade
 5. Restart bot service (systemctl/docker/pm2)
 6. Test new features:
-   - /dues_overview (new V2 system)
-   - /prospects_overview (new V2 system)
+   - /dues (new V2 dues system)
+   - /prospects (new V2 prospects system)  
    - /time (time converter)
    - /show_menu (enhanced menus)
 
