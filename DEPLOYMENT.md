@@ -168,6 +168,7 @@ docker-compose up -d
 │   ├── direct_messaging.py
 │   ├── database_management.py
 │   ├── enhanced_menu_system.py
+│   ├── dues_v2.py            # FIXED: Dues management system
 │   └── audit_logs.py
 ├── utils/                # Utility modules
 │   ├── database.py
@@ -216,6 +217,33 @@ git pull origin main
 docker-compose build --no-cache
 docker-compose up -d
 ```
+
+## ⚠️ Critical Fixes Applied (Latest)
+
+### Dues System v2.0 Fixes (October 2024)
+
+**Fixed Issues:**
+1. **Database Schema Consistency**: 
+   - Changed all `amount` references to `due_amount` to match database schema
+   - Affects lines 235, 317, 540, 923, 1116, 1481, 1641, 1744, 1789 in `dues_v2.py`
+
+2. **Date Handling Safety**:
+   - Added null checks for `period['due_date']` before calling `.replace()`
+   - Prevents `'NoneType' object has no attribute 'replace'` errors
+   - Includes fallback to 30-day default when due_date is missing
+
+3. **Enhanced Manager Functionality**:
+   - Fixed Enhanced Manager button errors
+   - All date manipulation now safely handled
+   - `/dues` command fully functional
+
+**Commands Ready:**
+- `/dues` - Main dues management interface ✅
+- Enhanced Manager with interactive buttons ✅
+- Dues creation and payment tracking ✅
+- Automated reminder system ✅
+
+**Deployment Status:** Ready for production ✅
 
 ## 🛠️ Troubleshooting
 
