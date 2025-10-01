@@ -3,9 +3,9 @@ THANATOS BOT DEPLOYMENT SUMMARY
 
 ✅ GITHUB UPDATE COMPLETED
 - Repository: https://github.com/HydrikMasqued/thanatos-bot.git
-- Commit: fd5a661 - Fix: Update cog loading to use V2 systems
+- Commit: 85b37d6 - Critical Fix: Resolve dues system database column mismatch  
 - All changes pushed successfully
-- CRITICAL FIX: Updated main.py to load V2 systems properly
+- CRITICAL FIXES: Updated main.py + Fixed dues system database field references
 
 📁 FILES TO UPLOAD TO SFTP SERVER:
 
