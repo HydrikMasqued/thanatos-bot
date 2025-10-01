@@ -110,7 +110,19 @@ class ThanatosBot(commands.Bot):
         except Exception as e:
             logger.error(f"Failed to initialize database in setup hook: {e}")
         
-        cogs = ['cogs.loa_system', 'cogs.membership', 'cogs.contributions', 'cogs.configuration', 'cogs.direct_messaging', 'cogs.database_management', 'cogs.audit_logs', 'cogs.dues', 'cogs.prospect_core', 'cogs.prospect_dashboard', 'cogs.prospect_notifications', 'cogs.enhanced_menu_system', 'cogs.time_converter']
+        cogs = [
+            'cogs.loa_system', 
+            'cogs.membership', 
+            'cogs.contributions', 
+            'cogs.configuration', 
+            'cogs.direct_messaging', 
+            'cogs.database_management', 
+            'cogs.audit_logs', 
+            'cogs.dues_v2',  # New V2 dues system
+            'cogs.prospects_v2',  # New V2 prospects system
+            'cogs.enhanced_menu_system', 
+            'cogs.time_converter'
+        ]
         
         for cog in cogs:
             try:
