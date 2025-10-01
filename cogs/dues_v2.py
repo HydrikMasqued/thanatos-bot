@@ -1268,17 +1268,46 @@ class ConfirmCancellationView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         
         try:
-            # For now, we'll just mark the period as inactive by setting a note
-            # This is a simplified approach since the full database method doesn't exist yet
-            embed = discord.Embed(
-                title="ℹ️ Period Cancellation",
-                description="Period cancellation feature is coming soon! \n"
-                           "For now, please contact an administrator to cancel periods manually.",
-                color=discord.Color.blue()
-            )
-            embed.timestamp = datetime.now()
+            # Get period details first
+            period = await self.bot.db.get_dues_period_by_id(self.period_id)
+            if not period:
+                await interaction.followup.send("❌ Period not found.", ephemeral=True)
+                return
             
+            # Deactivate the dues period
+            await self.bot.db.deactivate_dues_period(
+                guild_id=self.guild_id, 
+                period_id=self.period_id, 
+                updated_by_id=interaction.user.id
+            )
+            
+            embed = discord.Embed(
+                title="❌ Period Cancelled Successfully",
+                description=f"**{period['period_name']}** has been cancelled and is no longer active.",
+                color=discord.Color.red()
+            )
+            
+            embed.add_field(
+                name="📋 Period Details",
+                value=f"**Name:** {period['period_name']}\n"
+                      f"**Amount:** ${period['due_amount']:.2f}\n"
+                      f"**Cancelled by:** {interaction.user.display_name}",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="ℹ️ What happens now?",
+                value="• Period is no longer active\n"
+                      "• No new payments can be recorded\n"
+                      "• Existing payment records are preserved\n"
+                      "• Reminders will stop for this period",
+                inline=False
+            )
+            
+            embed.timestamp = datetime.now()
             await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            logger.info(f"Period {self.period_id} cancelled by user {interaction.user.id} in guild {self.guild_id}")
             
             # Disable all buttons
             for item in self.children:
