@@ -73,18 +73,50 @@ class TimeParser:
                 delta, normalized = self._create_timedelta(value, unit)
                 return start_time + delta, normalized
         
-        # Split by common separators and parse each part
-        parts = re.split(r'[,]+', duration_str)  # Split only on commas, not spaces
+        # Try to handle complex formats like "2 weeks 3 days"
+        # Split by common words and separators
+        # First try to split by 'and', commas, and multiple spaces
+        parts = re.split(r'[,]|\s+and\s+', duration_str)
         parts = [part.strip() for part in parts if part.strip()]
         
-        for part in parts:
-            component_delta, component_str = self._parse_single_component(part)
-            if component_delta:
-                if total_delta is None:
+        # If we only have one part, try to extract multiple time units from it
+        if len(parts) == 1:
+            # Look for patterns like "2 weeks 3 days" or "1 month 2 weeks"
+            # Use regex to find all number+unit combinations
+            pattern = r'(\d+(?:\.\d+)?)\s*([a-zA-Z]+)'
+            matches = re.findall(pattern, parts[0])
+            
+            if len(matches) > 1:
+                # We found multiple time components
+                for value_str, unit_str in matches:
+                    try:
+                        value = float(value_str)
+                        unit = self._normalize_unit(unit_str)
+                        if unit:
+                            delta, normalized = self._create_timedelta(value, unit)
+                            if total_delta is None:
+                                total_delta = delta
+                            else:
+                                total_delta += delta
+                            parsed_components.append(normalized)
+                    except (ValueError, TypeError):
+                        continue
+            else:
+                # Single component, process normally
+                component_delta, component_str = self._parse_single_component(parts[0])
+                if component_delta:
                     total_delta = component_delta
-                else:
-                    total_delta += component_delta
-                parsed_components.append(component_str)
+                    parsed_components.append(component_str)
+        else:
+            # Multiple parts, process each one
+            for part in parts:
+                component_delta, component_str = self._parse_single_component(part)
+                if component_delta:
+                    if total_delta is None:
+                        total_delta = component_delta
+                    else:
+                        total_delta += component_delta
+                    parsed_components.append(component_str)
         
         if total_delta is None:
             raise ValueError(f"Could not parse duration: '{duration_str}'")

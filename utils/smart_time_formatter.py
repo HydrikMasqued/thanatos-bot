@@ -21,7 +21,7 @@ class SmartTimeFormatter:
         'in_x_weeks': re.compile(r'\bin\s+(\d+)\s+weeks?\b', re.IGNORECASE),
         'in_x_months': re.compile(r'\bin\s+(\d+)\s+months?\b', re.IGNORECASE),
         
-        # Today/Tomorrow patterns
+        # Today/Tomorrow patterns - improved to handle both orders
         'today': re.compile(r'\btoday\b', re.IGNORECASE),
         'tomorrow': re.compile(r'\btomorrow\b', re.IGNORECASE),
         'yesterday': re.compile(r'\byesterday\b', re.IGNORECASE),
@@ -29,6 +29,9 @@ class SmartTimeFormatter:
         'today_in': re.compile(r'\btoday\s+in\s+(\d+)\s+(hours?|minutes?|mins?)\b', re.IGNORECASE),
         'tomorrow_at': re.compile(r'\btomorrow\s+(?:at\s+)?(\d{1,2}):?(\d{2})?\s*(am|pm)?\b', re.IGNORECASE),
         'tomorrow_in': re.compile(r'\btomorrow\s+in\s+(\d+)\s+(hours?|minutes?|mins?)\b', re.IGNORECASE),
+        # Flexible patterns for time before day
+        'time_today': re.compile(r'\b(\d{1,2}):?(\d{2})?\s*(am|pm)\s+today\b', re.IGNORECASE),
+        'time_tomorrow': re.compile(r'\b(\d{1,2}):?(\d{2})?\s*(am|pm)\s+tomorrow\b', re.IGNORECASE),
         
         # Week patterns
         'next_week': re.compile(r'\bnext\s+week\b', re.IGNORECASE),
@@ -332,16 +335,28 @@ class SmartTimeFormatter:
                             # Approximate months as 30 days
                             return now + timedelta(days=amount * 30)
             
-            # Handle "today at X" or "tomorrow at X"
+            # Handle "today at X" or "tomorrow at X" (traditional order)
             today_match = SmartTimeFormatter.TIME_PATTERNS['today_at'].search(time_str)
             tomorrow_match = SmartTimeFormatter.TIME_PATTERNS['tomorrow_at'].search(time_str)
             
-            if today_match or tomorrow_match:
-                match = today_match or tomorrow_match
+            # Handle "X today" or "X tomorrow" (reverse order)
+            time_today_match = SmartTimeFormatter.TIME_PATTERNS['time_today'].search(time_str)
+            time_tomorrow_match = SmartTimeFormatter.TIME_PATTERNS['time_tomorrow'].search(time_str)
+            
+            if today_match or tomorrow_match or time_today_match or time_tomorrow_match:
+                # Determine which pattern matched and get the time components
+                if today_match or tomorrow_match:
+                    match = today_match or tomorrow_match
+                    is_tomorrow = tomorrow_match is not None
+                else:
+                    match = time_today_match or time_tomorrow_match
+                    is_tomorrow = time_tomorrow_match is not None
+                
                 hour = int(match.group(1))
                 minute = int(match.group(2)) if match.group(2) else 0
                 ampm = match.group(3)
                 
+                # Convert to 24-hour format
                 if ampm:
                     if ampm.lower() == 'pm' and hour != 12:
                         hour += 12
@@ -349,7 +364,7 @@ class SmartTimeFormatter:
                         hour = 0
                 
                 target_date = now.date()
-                if tomorrow_match:
+                if is_tomorrow:
                     target_date = (now + timedelta(days=1)).date()
                 
                 return datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=minute))

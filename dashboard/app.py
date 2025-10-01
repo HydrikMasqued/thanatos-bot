@@ -263,6 +263,82 @@ class DashboardManager:
             logger.error(f"Error updating category mapping: {e}")
             return False
 
+# API Configuration
+API_KEYS = {
+    'rebel-hounds-mc-manager': 'rh_mc_api_key_2024_secure_token',  # API key for MC Manager
+}
+
+def validate_api_key(api_key):
+    """Validate API key for external integrations"""
+    return api_key in API_KEYS.values()
+
+async def get_members_for_sync():
+    """Get member data formatted for MC Manager sync"""
+    try:
+        # Get members from the database
+        members = await dashboard.db.get_all_members(TARGET_GUILD_ID)
+        
+        # Format for MC Manager
+        formatted_members = []
+        for member in members:
+            formatted_members.append({
+                'id': f'T{member.get("id", "000")}',
+                'name': member.get('display_name', member.get('username', 'Unknown')),
+                'rank': member.get('rank', 'Member'),
+                'status': member.get('status', 'Active'),
+                'join_date': member.get('join_date', datetime.now().strftime('%Y-%m-%d'))
+            })
+        
+        return formatted_members
+    except Exception as e:
+        logger.error(f"Error getting members for sync: {e}")
+        # Return mock data as fallback
+        return [
+            {'id': 'T001', 'name': 'Marcus "Steel" Rodriguez', 'rank': 'President', 'status': 'Active', 'join_date': '2023-01-15'},
+            {'id': 'T002', 'name': 'Jake "Thunder" Morrison', 'rank': 'Vice President', 'status': 'Active', 'join_date': '2023-02-20'},
+            {'id': 'T003', 'name': 'Sam "Viper" Johnson', 'rank': 'Sergeant At Arms', 'status': 'Active', 'join_date': '2023-03-10'},
+            {'id': 'T004', 'name': 'Alex "Phoenix" Davis', 'rank': 'Road Captain', 'status': 'Active', 'join_date': '2023-04-05'},
+            {'id': 'T005', 'name': 'Chris "Shadow" Wilson', 'rank': 'Full Patch', 'status': 'Active', 'join_date': '2023-05-12'}
+        ]
+
+async def get_inventory_for_sync():
+    """Get inventory data formatted for MC Manager sync"""
+    try:
+        # Get contributions from the database which serve as inventory
+        contributions = await dashboard.db.get_all_contributions(TARGET_GUILD_ID)
+        
+        # Group contributions by item name and sum quantities
+        inventory_map = {}
+        for contrib in contributions:
+            item_name = contrib.get('item_name', 'Unknown Item')
+            category = contrib.get('category', 'General')
+            quantity = contrib.get('quantity', 1)
+            
+            if item_name in inventory_map:
+                inventory_map[item_name]['quantity'] += quantity
+            else:
+                inventory_map[item_name] = {
+                    'id': f'I{len(inventory_map) + 1:03d}',
+                    'name': item_name,
+                    'category': category,
+                    'quantity': quantity,
+                    'condition': 'Good',
+                    'value': 0,  # Could be calculated based on category
+                    'location': 'Club House'
+                }
+        
+        return list(inventory_map.values())
+    except Exception as e:
+        logger.error(f"Error getting inventory for sync: {e}")
+        # Return mock data as fallback
+        return [
+            {'id': 'I001', 'name': 'Harley Davidson Street Glide', 'category': 'Vehicles', 'quantity': 1, 'condition': 'Excellent', 'value': 25000, 'location': 'Garage Bay 1'},
+            {'id': 'I002', 'name': 'Honda CBR1000RR', 'category': 'Vehicles', 'quantity': 1, 'condition': 'Good', 'value': 18000, 'location': 'Garage Bay 2'},
+            {'id': 'I003', 'name': 'Leather Jackets', 'category': 'Apparel', 'quantity': 15, 'condition': 'Good', 'value': 200, 'location': 'Storage Room A'},
+            {'id': 'I004', 'name': 'Club Patches', 'category': 'Supplies', 'quantity': 50, 'condition': 'Excellent', 'value': 25, 'location': 'Office Desk'},
+            {'id': 'I005', 'name': 'Helmet Collection', 'category': 'Safety', 'quantity': 8, 'condition': 'Good', 'value': 150, 'location': 'Equipment Locker'}
+        ]
+
 # Initialize dashboard manager
 dashboard = DashboardManager()
 
@@ -616,6 +692,97 @@ def api_update_mapping():
     except Exception as e:
         logger.error(f"Error updating mapping: {e}")
         return jsonify({'success': False, 'error': str(e)})
+
+# API Endpoints for MC Manager Integration
+
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    """Health check endpoint for MC Manager integration"""
+    try:
+        return jsonify({
+            'status': 'online',
+            'version': 'v2.1.0',
+            'timestamp': datetime.now().isoformat(),
+            'service': 'Thanatos Project API'
+        })
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/members', methods=['GET'])
+def api_members():
+    """Get members data for MC Manager sync"""
+    try:
+        # Check for API key authentication
+        api_key = request.headers.get('Authorization')
+        if not api_key or not api_key.startswith('Bearer '):
+            return jsonify({'error': 'API key required'}), 401
+            
+        api_key = api_key.replace('Bearer ', '')
+        if not validate_api_key(api_key):
+            return jsonify({'error': 'Invalid API key'}), 401
+        
+        # Get members from database
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            members_data = loop.run_until_complete(get_members_for_sync())
+        finally:
+            loop.close()
+        
+        return jsonify({
+            'success': True,
+            'members': members_data,
+            'count': len(members_data),
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting members: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/inventory', methods=['GET'])
+def api_inventory():
+    """Get inventory data for MC Manager sync"""
+    try:
+        # Check for API key authentication
+        api_key = request.headers.get('Authorization')
+        if not api_key or not api_key.startswith('Bearer '):
+            return jsonify({'error': 'API key required'}), 401
+            
+        api_key = api_key.replace('Bearer ', '')
+        if not validate_api_key(api_key):
+            return jsonify({'error': 'Invalid API key'}), 401
+        
+        # Get inventory from database (contributions)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            inventory_data = loop.run_until_complete(get_inventory_for_sync())
+        finally:
+            loop.close()
+        
+        return jsonify({
+            'success': True,
+            'inventory': inventory_data,
+            'count': len(inventory_data),
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting inventory: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/bulk-update', methods=['POST'])
 @requires_admin

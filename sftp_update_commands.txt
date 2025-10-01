@@ -1,0 +1,64 @@
+# SFTP Commands to Update Server
+# Connect to your SFTP server first: sftp user@your-server.com
+
+# 1. Upload modified core files
+put main.py
+put utils/database.py
+put utils/smart_time_formatter.py
+put utils/time_parser.py
+put debug_main.py
+put dashboard/app.py
+put cogs/enhanced_menu_system.py
+
+# 2. Upload new V2 system files
+put cogs/dues_v2.py
+put cogs/prospects_v2.py
+put cogs/time_converter.py
+
+# 3. Upload documentation
+put CHANGELOG_DUES_SYSTEM_V2.md
+put CHANGELOG_SUMMARY.md
+put ENHANCED_DUES_SYSTEM.md
+put PROSPECTS_DUES_V2_CHANGELOG.md
+put SIMPLIFIED_DUES_SYSTEM_GUIDE.md
+put TECHNICAL_CHANGELOG.md
+put V2_IMPLEMENTATION_SUMMARY.md
+
+# 4. Upload test files (optional for production)
+put comprehensive_test.py
+put debug_prospects.py
+put edge_case_test.py
+put test_bot_integration.py
+put test_time_parsing_comprehensive.py
+put test_v2_systems.py
+put install_dateutil.py
+
+# 5. Remove old files (use rm command)
+rm EVENT_SYSTEM_FIX_REPORT.md
+rm cogs/dues_tracking.py
+rm cogs/event_notepad.py
+rm cogs/events.py
+rm cogs/prospect_core.py
+rm cogs/prospect_dashboard.py
+rm cogs/prospect_management.py
+rm cogs/prospect_notes.py
+rm cogs/prospect_notes_consolidated.py
+rm cogs/prospect_notifications.py
+rm cogs/prospect_tasks.py
+rm cogs/prospect_tasks_and_notes_consolidated.py
+rm cogs/prospect_tasks_consolidated.py
+rm cogs/prospect_voting.py
+rm cogs/prospect_voting_consolidated.py
+rm server_upload_files/event_notepad.py
+rm server_upload_files/event_notepad_fixed.py
+rm test_event_management.py
+rm test_simple_event.py
+rm utils/event_export_utils.py
+rm utils/precise_reminder_system.py
+
+# 6. Restart the bot service (example commands)
+# systemctl restart thanatos-bot
+# or
+# docker-compose down && docker-compose up -d
+# or
+# pm2 restart thanatos-bot

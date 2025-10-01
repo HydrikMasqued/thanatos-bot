@@ -97,7 +97,6 @@ class DashboardView(ModernMenuView):
             # Get basic stats
             contributions = await self.bot.db.get_all_contributions(interaction.guild.id)
             members = await self.bot.db.get_all_members(interaction.guild.id)
-            events = await self.bot.db.get_active_events(interaction.guild.id)
             
             # Get LOA stats if officer
             active_loas = 0
@@ -125,17 +124,12 @@ class DashboardView(ModernMenuView):
             total_quantity = sum(c.get('quantity', 0) for c in contributions) if contributions else 0
             active_contributors = len(set(c['discord_name'] for c in contributions)) if contributions else 0
             
-            # Calculate event stats  
-            total_attendees = sum(e.get('yes_count', 0) or 0 for e in events) if events else 0
-            
             self.stats_cache = {
                 'total_contributions': len(contributions) if contributions else 0,
                 'total_quantity': total_quantity,
                 'total_members': len(members) if members else 0,
                 'active_contributors': active_contributors,
                 'active_loas': active_loas,
-                'active_events': len(events) if events else 0,
-                'total_attendees': total_attendees,
                 'dues_periods': dues_periods,
                 'categories': len(set(c['category'] for c in contributions)) if contributions else 0
             }
@@ -143,8 +137,7 @@ class DashboardView(ModernMenuView):
             print(f"Error refreshing stats: {e}")
             self.stats_cache = {
                 'total_contributions': 0, 'total_quantity': 0, 'total_members': 0, 
-                'active_contributors': 0, 'active_loas': 0, 'active_events': 0, 
-                'total_attendees': 0, 'dues_periods': 0, 'categories': 0
+                'active_contributors': 0, 'active_loas': 0, 'dues_periods': 0, 'categories': 0
             }
     
     async def create_dashboard_embed(self, interaction: discord.Interaction) -> discord.Embed:
@@ -180,7 +173,6 @@ class DashboardView(ModernMenuView):
         stats_text = (
             f"📦 **{self.stats_cache['total_contributions']:,}** Records ({self.stats_cache['total_quantity']:,} items)\n"
             f"👥 **{self.stats_cache['total_members']:,}** Members ({self.stats_cache['active_contributors']} active)\n"
-            f"🎉 **{self.stats_cache['active_events']}** Events ({self.stats_cache['total_attendees']} attending)\n"
             f"📂 **{self.stats_cache['categories']}** Categories"
         )
         
@@ -209,7 +201,6 @@ class DashboardView(ModernMenuView):
             "📦 **Contributions** • Record, track & analyze donations",
             "👥 **Membership** • Member management & statistics",
             "📅 **LOA System** • Interactive leave management",
-            "🎉 **Event Management** • Full RSVP & invitation system",
             "💰 **Dues Tracking** • Payment tracking & reports",
             "🔍 **Prospect Management** • Recruit tracking & evaluation"
         ]
@@ -271,27 +262,24 @@ class DashboardView(ModernMenuView):
         embed = await view.create_module_embed(interaction)
         await interaction.response.edit_message(embed=embed, view=view)
     
-    @discord.ui.button(
-        label="Events",
-        style=discord.ButtonStyle.secondary,
-        emoji="🎉",
-        row=0
-    )
-    async def events_module(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = EventsModuleView(self.bot, self.user_id)
-        embed = await view.create_module_embed(interaction)
-        await interaction.response.edit_message(embed=embed, view=view)
     
     @discord.ui.button(
-        label="Dues Tracking",
+        label="Dues Management",
         style=discord.ButtonStyle.secondary,
         emoji="💰",
         row=0
     )
     async def dues_module(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = DuesTrackingModuleView(self.bot, self.user_id)
-        embed = await view.create_module_embed(interaction)
-        await interaction.response.edit_message(embed=embed, view=view)
+        dues_cog = self.bot.get_cog('DuesManagementV2')
+        if dues_cog:
+            await dues_cog.dues_command.callback(dues_cog, interaction)
+        else:
+            error_embed = self.create_professional_embed(
+                "❌ Service Unavailable",
+                "The Dues Management system is currently unavailable. Please try again later.",
+                MenuColors.DANGER
+            )
+            await interaction.response.send_message(embed=error_embed, ephemeral=True)
     
     @discord.ui.button(
         label="Prospects",
@@ -308,9 +296,17 @@ class DashboardView(ModernMenuView):
             )
             return
         
-        view = ProspectManagementModuleView(self.bot, self.user_id)
-        embed = await view.create_module_embed(interaction)
-        await interaction.response.edit_message(embed=embed, view=view)
+        prospects_cog = self.bot.get_cog('ProspectManagementV2')
+        if prospects_cog:
+            # Create a mock prospect command with list action
+            await prospects_cog._list_prospects(interaction)
+        else:
+            error_embed = self.create_professional_embed(
+                "❌ Service Unavailable",
+                "The Prospects Management system is currently unavailable. Please try again later.",
+                MenuColors.DANGER
+            )
+            await interaction.response.send_message(embed=error_embed, ephemeral=True)
     
     @discord.ui.button(
         label="Database",
@@ -673,8 +669,8 @@ class AuditModuleView(ModernMenuView):
             audit_events = await self.bot.db.get_all_audit_events(interaction.guild.id, limit=None)
             
             if audit_events:
-                contributions_count = sum(1 for e in audit_events if e['event_type'] == 'contribution')
-                changes_count = sum(1 for e in audit_events if e['event_type'] == 'quantity_change')
+                contributions_count = sum(1 for e in audit_events if e.get('event_type') == 'contribution')
+                changes_count = sum(1 for e in audit_events if e.get('event_type') == 'quantity_change')
                 unique_actors = len(set(e['actor_id'] for e in audit_events))
                 
                 stats_text = (
@@ -694,9 +690,10 @@ class AuditModuleView(ModernMenuView):
                 if audit_events:
                     latest_event = audit_events[0]  # Most recent
                     latest_time = ContributionAuditHelpers.format_datetime_safe(latest_event['occurred_at'])
+                    event_type = latest_event.get('event_type', 'unknown')
                     embed.add_field(
                         name="🕐 Latest Activity",
-                        value=f"**{latest_event['event_type'].title()}**\n"
+                        value=f"**{event_type.title()}**\n"
                               f"Item: {latest_event['item_name'][:20]}\n"
                               f"Time: {latest_time}",
                         inline=True
@@ -1716,21 +1713,21 @@ class ConfirmEndMemberLOAView(discord.ui.View):
         await interaction.response.edit_message(embed=cancel_embed, view=None)
 
 class DuesTrackingModuleView(ModernMenuView):
-    """Dues Tracking module for comprehensive payment management"""
+    """Simplified Dues Tracking module with improved navigation"""
     
     async def create_module_embed(self, interaction: discord.Interaction) -> discord.Embed:
         embed = self.create_professional_embed(
-            "💰 Dues Tracking System",
-            "**Comprehensive Payment Management & Reporting**\n\nTrack member dues, payments, and generate detailed financial reports.",
+            "💰 Simplified Dues System",
+            "**Easy-to-Use Payment Management**\n\nStreamlined interface for members and officers with intuitive navigation.",
             MenuColors.SUCCESS
         )
         
         try:
-            # Get dues stats if officer
+            # Get dues stats
             is_officer = await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot)
             
             if is_officer:
-                # Get dues periods
+                # Get dues periods for officer stats
                 conn = await self.bot.db._get_shared_connection()
                 cursor = await conn.execute(
                     'SELECT COUNT(*) FROM dues_periods WHERE guild_id = ? AND is_active = TRUE',
@@ -1748,207 +1745,218 @@ class DuesTrackingModuleView(ModernMenuView):
                 if latest_period:
                     summary = await self.bot.db.get_dues_collection_summary(interaction.guild.id, latest_period[0])
                     
+                    collection_rate = summary.get('collection_percentage', 0)
+                    status_emoji = "🟢" if collection_rate >= 80 else "🟡" if collection_rate >= 60 else "🔴"
+                    
                     stats_text = (
-                        f"📅 **{active_periods}** Active Periods\n"
-                        f"👥 **{summary.get('total_members', 0)}** Members Tracked\n"
-                        f"💰 **${summary.get('total_collected', 0):.2f}** Total Collected\n"
-                        f"📊 **{summary.get('collection_percentage', 0):.1f}%** Collection Rate"
+                        f"📋 **{active_periods}** Active Periods\n"
+                        f"👥 **{summary.get('total_members', 0)}** Members\n"
+                        f"💰 **${summary.get('total_collected', 0):.2f}** Collected\n"
+                        f"{status_emoji} **{collection_rate:.1f}%** Collection Rate"
                     )
                     
                     embed.add_field(
-                        name="📈 Payment Statistics",
+                        name="📊 Quick Stats",
                         value=stats_text,
                         inline=True
                     )
                     
-                    # Period breakdown with enhanced due date display
-                    due_date_display = "Not set"
+                    # Latest period info
+                    due_date_display = "No due date"
                     if latest_period[5]:  # due_date column
                         try:
                             due_date = datetime.fromisoformat(latest_period[5].replace('Z', '+00:00'))
-                            timestamp_formats = AdvancedTimestampParser.suggest_timestamp_formats(due_date)
-                            due_date_display = f"{timestamp_formats['date_long']} ({timestamp_formats['relative']})"
+                            due_date_display = SmartTimeFormatter.format_discord_timestamp(due_date, 'R')
                         except:
                             due_date_display = str(latest_period[5])
                     
                     period_info = (
-                        f"**Latest Period:** {latest_period[2]}\n"
-                        f"**Due Date:** {due_date_display}\n"
-                        f"**Due Amount:** ${latest_period[4]:.2f}\n"
-                        f"**Paid Members:** {summary.get('paid_count', 0)}\n"
+                        f"**Name:** {latest_period[2]}\n"
+                        f"**Amount:** ${latest_period[4]:.2f}\n"
+                        f"**Due:** {due_date_display}\n"
                         f"**Outstanding:** ${summary.get('outstanding_amount', 0):.2f}"
                     )
                     
                     embed.add_field(
-                        name="🏆 Current Period",
+                        name="📋 Latest Period",
                         value=period_info,
                         inline=True
                     )
                 else:
                     embed.add_field(
-                        name="📊 Payment Statistics",
+                        name="📊 No Data",
                         value=f"**{active_periods}** Active Periods\nNo payment data available yet.",
                         inline=True
                     )
             else:
+                # Member view - show their quick status
                 embed.add_field(
-                    name="👤 Member Access",
-                    value="Basic dues tracking features available.\nContact officers for payment updates.",
+                    name="👤 Member Dashboard",
+                    value="• View your personal dues status\n"
+                          "• Check payment history\n"
+                          "• Contact officers for help",
                     inline=False
                 )
         except Exception:
             embed.add_field(
-                name="⚠️ Stats Loading",
-                value="Loading dues statistics...",
+                name="⚠️ Loading...",
+                value="Loading dues information...",
                 inline=False
             )
         
-        # Features based on permissions
+        # Simplified features list
         is_officer = await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot)
         
-        if is_officer:
-            features = [
-                "📋 **Create Dues Period** • Set up new payment periods",
-                "💳 **Update Payments** • Record member payments",
-                "📊 **Financial Reports** • Comprehensive analytics",
-                "📈 **Payment History** • Track member payment records",
-                "📁 **Export Data** • Backup and analysis files",
-                "🔧 **Manage Periods** • Edit and reset payment periods"
-            ]
-        else:
-            features = [
-                "💳 **View My Payments** • Check personal payment status",
-                "📋 **Payment History** • See payment records",
-                "💰 **Due Amounts** • Check current dues",
-                "📞 **Contact Officers** • Get payment assistance"
-            ]
-        
         embed.add_field(
-            name="🎯 Available Features",
-            value="\n".join(features),
+            name="🚀 Quick Access",
+            value="**Primary Command:** `/dues` - Opens your personalized dashboard\n"
+                  f"**For {'Officers' if is_officer else 'Members'}:** {'Create periods, record payments, view reports' if is_officer else 'Check status, view history, get help'}",
             inline=False
         )
         
         if is_officer:
             embed.add_field(
-                name="🔧 Management Tools",
-                value="• **Period Management** • Create, edit, reset periods\n"
-                      "• **Payment Processing** • Record and track payments\n"
-                      "• **Financial Reporting** • Generate detailed reports\n"
-                      "• **Data Export** • Backup and analysis capabilities",
-                inline=False
+                name="⚡ Officer Quick Commands",
+                value="• `/dues_quick_record` - Fast payment recording\n"
+                      "• `/dues_create` - Create new periods\n"
+                      "• `/my_dues` - See member perspective",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name="💡 Member Commands",
+                value="• `/my_dues` - Your payment status\n"
+                      "• `/dues` - Full dashboard\n"
+                      "• Contact officers for payment help",
+                inline=True
             )
         
         return embed
     
-    @discord.ui.button(label="📋 Create Period", style=discord.ButtonStyle.primary, row=0)
-    async def create_period(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Check officer permissions
-        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
-            await ContributionAuditHelpers.send_permission_error(
-                interaction, 
-                "🔒 **Dues Period Creation** requires Officer permissions."
-            )
-            return
-        
-        # Show period creation command info
-        create_embed = self.create_professional_embed(
-            "📋 Create Dues Period",
-            "Use the dues period creation command to set up new payment periods:",
-            MenuColors.INFO
-        )
-        
-        create_embed.add_field(
-            name="🚀 Quick Creation",
-            value="Use `/dues_create_period` with these parameters:\n"
-                  "• **period_name:** Name for the period (e.g. 'Q1 2024 Dues')\n"
-                  "• **due_amount:** Amount per member (e.g. 25.00)\n"
-                  "• **due_date:** When due (supports advanced parsing!)\n"
-                  "• **description:** Optional description",
-            inline=False
-        )
-        
-        create_embed.add_field(
-            name="📅 Due Date Examples",
-            value="The bot supports many date formats:\n"
-                  "• **Natural:** 'next friday', 'end of month', 'january 15'\n"
-                  "• **Due-specific:** 'due by march 1st', 'deadline next week'\n"
-                  "• **Standard:** '2024-03-15', '3/15/2024'\n"
-                  "• **Discord timestamps:** Copy from Discord messages!",
-            inline=False
-        )
-        
-        create_embed.add_field(
-            name="💡 Example Usage",
-            value="`/dues_create_period period_name:'Q1 2024 Dues' due_amount:25.00 due_date:'march 15' description:'Quarterly membership dues'`",
-            inline=False
-        )
-        
-        await interaction.response.send_message(embed=create_embed, ephemeral=True)
-    
-    @discord.ui.button(label="💳 Update Payment", style=discord.ButtonStyle.secondary, row=0)
-    async def update_payment(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Check officer permissions
-        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
-            await ContributionAuditHelpers.send_permission_error(
-                interaction, 
-                "🔒 **Payment Updates** require Officer permissions."
-            )
-            return
-        
-        dues_cog = self.bot.get_cog('AdvancedDuesTrackingSystem')
+    @discord.ui.button(label="🚀 Open Dues Dashboard", style=discord.ButtonStyle.primary, row=0)
+    async def open_dues_dashboard(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Get the simplified dues system cog
+        dues_cog = self.bot.get_cog('SimplifiedDuesSystem')
         if dues_cog:
-            # Show payment update command info
-            update_embed = self.create_professional_embed(
-                "💳 Update Member Payment",
-                "Record and update member payment information:",
-                MenuColors.SUCCESS
+            # Call the main dues command to open the personalized dashboard
+            await dues_cog.dues(interaction)
+        else:
+            # Fallback to information
+            embed = self.create_professional_embed(
+                "💰 Dues System Access",
+                "Access your personalized dues dashboard with all the features you need:",
+                MenuColors.INFO
             )
             
-            update_embed.add_field(
-                name="📝 Payment Recording",
-                value="Use `/dues_update_payment` to record payments:\n"
-                      "• Select the member and period\n"
-                      "• Enter amount paid and payment method\n"
-                      "• Set payment status (paid/partial/exempt)\n"
-                      "• Add optional notes",
+            is_officer = await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot)
+            
+            embed.add_field(
+                name="🎯 Primary Command",
+                value="**`/dues`** - Opens your personalized dashboard\n"
+                      f"Interface tailored for {'officers' if is_officer else 'members'}",
                 inline=False
             )
             
-            update_embed.add_field(
-                name="💰 Payment Status Options",
-                value="• **Paid** - Full payment received\n"
-                      "• **Partial** - Partial payment received\n"
-                      "• **Unpaid** - No payment received\n"
-                      "• **Exempt** - Member is exempt from dues",
-                inline=True
-            )
+            if is_officer:
+                embed.add_field(
+                    name="⚡ Officer Quick Commands",
+                    value="• `/dues_quick_record` - Fast payment recording\n"
+                          "• `/dues_create` - Create new periods\n"
+                          "• `/my_dues` - See member perspective",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="💡 Member Commands",
+                    value="• `/my_dues` - Check your payment status\n"
+                          "• `/dues` - Full interactive dashboard\n"
+                          "• Contact officers for payment help",
+                    inline=False
+                )
             
-            update_embed.add_field(
-                name="💳 Payment Methods",
-                value="Cash, Venmo, PayPal, Zelle,\nCashApp, Bank Transfer,\nCheck, Other",
-                inline=True
-            )
-            
-            await interaction.response.send_message(embed=update_embed, ephemeral=True)
-        else:
-            await self._service_unavailable(interaction, "Dues Tracking System")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    @discord.ui.button(label="📊 Financial Report", style=discord.ButtonStyle.secondary, row=0)
-    async def financial_report(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="⚡ Quick Record Payment", style=discord.ButtonStyle.secondary, row=0)
+    async def quick_record_payment(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Check officer permissions
         if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
             await ContributionAuditHelpers.send_permission_error(
                 interaction, 
-                "🔒 **Financial Reports** require Officer permissions."
+                "🔒 **Quick Payment Recording** requires Officer permissions."
             )
             return
         
-        dues_cog = self.bot.get_cog('AdvancedDuesTrackingSystem')
+        # Show quick payment recording info
+        embed = self.create_professional_embed(
+            "⚡ Quick Payment Recording",
+            "Fast and easy way to record member payments:",
+            MenuColors.SUCCESS
+        )
+        
+        embed.add_field(
+            name="🚀 Super Fast Command",
+            value="**`/dues_quick_record @member amount method status`**\n\n"
+                  "**Example:** `/dues_quick_record @JohnDoe 25.00 Venmo paid`\n"
+                  "Automatically uses the most recent dues period!",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="💳 Payment Methods",
+            value="Venmo, PayPal, Zelle, CashApp, Cash, Check, Other",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📊 Status Options",
+            value="paid, unpaid, partial, exempt",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="💡 Pro Tips",
+            value="• Use autocomplete for methods and statuses\n"
+                  "• Records today's date automatically\n"
+                  "• Adds your name to notes for tracking",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="💴 My Dues Status", style=discord.ButtonStyle.secondary, row=0)
+    async def my_dues_status(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Get the simplified dues system cog
+        dues_cog = self.bot.get_cog('SimplifiedDuesSystem')
         if dues_cog:
-            await dues_cog.financial_report(interaction)
+            # Call the my_dues command
+            await dues_cog.my_dues(interaction)
         else:
-            await self._service_unavailable(interaction, "Dues Financial Reports")
+            # Fallback information
+            embed = self.create_professional_embed(
+                "💴 Check Your Dues",
+                "View your personal payment status and history:",
+                MenuColors.INFO
+            )
+            
+            embed.add_field(
+                name="🎯 Personal Status Command",
+                value="**`/my_dues`** - Shows your complete dues information\n\n"
+                      "• All periods and payment status\n"
+                      "• Total outstanding amounts\n"
+                      "• Payment history and rates",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📞 Need Help?",
+                value="Contact officers if you have questions about:\n"
+                      "• Payment methods and amounts\n"
+                      "• Due dates and deadlines\n"
+                      "• Status updates or corrections",
+                inline=False
+            )
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @discord.ui.button(label="📈 Payment History", style=discord.ButtonStyle.secondary, row=1)
     async def payment_history(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2039,248 +2047,6 @@ class DuesTrackingModuleView(ModernMenuView):
         )
         await interaction.response.send_message(embed=error_embed, ephemeral=True)
 
-class EventsModuleView(ModernMenuView):
-    """Event Management module"""
-    
-    async def create_module_embed(self, interaction: discord.Interaction) -> discord.Embed:
-        embed = self.create_professional_embed(
-            "🎉 Event Management System",
-            "**Comprehensive Event Organization & RSVP Tracking**\n\nCreate, manage, and track events with full RSVP integration.",
-            MenuColors.INFO
-        )
-        
-        try:
-            # Get event stats
-            events = await self.bot.db.get_active_events(interaction.guild.id)
-            
-            if events:
-                # Calculate stats
-                total_events = len(events)
-                total_attending = sum(e.get('yes_count', 0) or 0 for e in events)
-                categories = len(set(e['category'] for e in events))
-                
-                stats_text = (
-                    f"📅 **{total_events}** Active Events\n"
-                    f"✅ **{total_attending}** Total Attending\n"
-                    f"📂 **{categories}** Categories\n"
-                    f"🔄 **Live** Status Updates"
-                )
-                
-                embed.add_field(
-                    name="📊 Event Statistics",
-                    value=stats_text,
-                    inline=True
-                )
-                
-                # Upcoming events with proper timestamp formatting
-                upcoming = [e for e in events[:3]]  # First 3 events
-                if upcoming:
-                    event_list = []
-                    for event in upcoming:
-                        attending = event.get('yes_count', 0) or 0
-                        
-                        # Format event date using Discord timestamps
-                        event_date_display = "TBD"
-                        if event.get('event_date'):
-                            try:
-                                if isinstance(event['event_date'], str):
-                                    event_datetime = datetime.fromisoformat(event['event_date'].replace('Z', '+00:00'))
-                                else:
-                                    event_datetime = event['event_date']
-                                
-                                timestamp_formats = AdvancedTimestampParser.suggest_timestamp_formats(event_datetime)
-                                event_date_display = f"{timestamp_formats['date_short']} {timestamp_formats['time_short']} ({timestamp_formats['relative']})"
-                            except:
-                                event_date_display = str(event['event_date'])
-                        
-                        event_list.append(f"**{event['event_name']}**\n📅 {event_date_display} | ✅ {attending} attending")
-                    
-                    embed.add_field(
-                        name="🔜 Upcoming Events",
-                        value="\n\n".join(event_list),
-                        inline=True
-                    )
-            else:
-                embed.add_field(
-                    name="📊 Event Statistics",
-                    value="No active events found.\nCreate your first event to get started!",
-                    inline=False
-                )
-        except Exception:
-            embed.add_field(
-                name="⚠️ Stats Loading",
-                value="Loading event statistics...",
-                inline=False
-            )
-        
-        # Event features
-        features = [
-            "🎉 **Create Events** • Schedule new events",
-            "📧 **Send Invitations** • Invite users/roles to events",
-            "📋 **RSVP Management** • Track responses",
-            "📊 **Event Analytics** • View attendance stats",
-            "📅 **Event Calendar** • List all active events",
-            "💬 **Send Event DMs** • Direct message invitations"
-        ]
-        
-        embed.add_field(
-            name="🎯 Available Features",
-            value="\n".join(features),
-            inline=False
-        )
-        
-        return embed
-    
-    @discord.ui.button(label="🎉 Create Event", style=discord.ButtonStyle.primary, row=0)
-    async def create_event(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Check officer permissions for event creation
-        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
-            await ContributionAuditHelpers.send_permission_error(
-                interaction, 
-                "🔒 **Event Creation** requires Officer permissions."
-            )
-            return
-        
-        # Show simplified event creation instructions
-        create_embed = self.create_professional_embed(
-            "🎉 Create Event - Simplified",
-            "Use the new simplified event creation command!",
-            MenuColors.SUCCESS
-        )
-        
-        create_embed.add_field(
-            name="🚀 Quick Event Creation",
-            value="Use `/event` with these parameters:\n"
-                  "• **name:** Event title\n"
-                  "• **time:** When (e.g. 'tomorrow 8pm', 'friday 3pm')\n"
-                  "• **description:** Event details\n"
-                  "• **role:** Role to invite (@Members, @Officers, etc.)\n"
-                  "• **send_dms:** Send DM notifications (True/False)",
-            inline=False
-        )
-        
-        create_embed.add_field(
-            name="🎁 Example Usage",
-            value="`/event name:Team Meeting time:tomorrow 3pm description:Weekly sync role:@Members send_dms:True`",
-            inline=False
-        )
-        
-        create_embed.add_field(
-            name="✨ What Happens Automatically",
-            value="✅ Event is created\n"
-                  "✅ All role members are invited\n"
-                  "✅ Everyone is RSVP'd as 'Yes'\n"
-                  "✅ DM notifications sent (if enabled)\n"
-                  "✅ Members can change their RSVP later",
-            inline=False
-        )
-        
-        await interaction.response.send_message(embed=create_embed, ephemeral=True)
-    
-    @discord.ui.button(label="📅 List Events", style=discord.ButtonStyle.secondary, row=0)
-    async def list_events(self, interaction: discord.Interaction, button: discord.ui.Button):
-        events_cog = self.bot.get_cog('EventSystem')
-        if events_cog:
-            await events_cog.list_events(interaction)
-        else:
-            error_embed = self.create_professional_embed(
-                "❌ Service Unavailable",
-                "The Event Management system is currently unavailable. Please try again later.",
-                MenuColors.DANGER
-            )
-            await interaction.response.send_message(embed=error_embed, ephemeral=True)
-    
-    @discord.ui.button(label="📊 Event Analytics", style=discord.ButtonStyle.secondary, row=0)
-    async def event_analytics(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Check officer permissions for analytics
-        if not await ContributionAuditHelpers.check_officer_permissions(interaction, self.bot):
-            await ContributionAuditHelpers.send_permission_error(
-                interaction, 
-                "🔒 **Event Analytics** requires Officer permissions."
-            )
-            return
-        
-        events_cog = self.bot.get_cog('EventSystem')
-        analytics_embed = self.create_professional_embed(
-            "📊 Event Analytics & Reporting",
-            "Access comprehensive event analytics and attendance data:",
-            MenuColors.INFO
-        )
-        
-        analytics_embed.add_field(
-            name="📋 Available Analytics",
-            value="Use the following commands for event analytics:\n\n"
-                  "• `/event-attendance <event_id>` - View attendance for specific event\n"
-                  "• `/member-attendance <member>` - View member's attendance history\n"
-                  "• `/event-list` - List all events with RSVP counts\n"
-                  "• `/event-finish <event_id>` - Complete event and record attendance",
-            inline=False
-        )
-        
-        analytics_embed.add_field(
-            name="📊 Analytics Features",
-            value="• **Attendance Rates** - Track member participation\n"
-                  "• **RSVP Analysis** - View response patterns\n"
-                  "• **Event Performance** - Measure event success\n"
-                  "• **Member Engagement** - Individual attendance tracking\n"
-                  "• **Historical Data** - Long-term attendance trends",
-            inline=False
-        )
-        
-        await interaction.response.send_message(embed=analytics_embed, ephemeral=True)
-    
-    @discord.ui.button(label="📧 Event Commands", style=discord.ButtonStyle.secondary, row=1)
-    async def event_commands(self, interaction: discord.Interaction, button: discord.ui.Button):
-        commands_embed = self.create_professional_embed(
-            "📋 Event Management Commands",
-            "Quick reference for event management commands:",
-            MenuColors.INFO
-        )
-        
-        # Officer commands
-        officer_commands = [
-            "`/event-create` • Create a new event with invitations",
-            "`/event-invite` • Send invitations for existing events", 
-            "`/event-list` • List all active events",
-            "`/event-attendance` • View attendance for events",
-            "`/event-finish` • Complete event and record attendance"
-        ]
-        
-        # User commands
-        user_commands = [
-            "`/rsvp` • Respond to event invitations",
-            "`/event-details` • View event information", 
-            "`/member-attendance` • View personal attendance history"
-        ]
-        
-        commands_embed.add_field(
-            name="👑 Officer Commands",
-            value="\n".join(officer_commands),
-            inline=True
-        )
-        
-        commands_embed.add_field(
-            name="👤 Member Commands",
-            value="\n".join(user_commands),
-            inline=True
-        )
-        
-        commands_embed.add_field(
-            name="📊 Tips", 
-            value="• Use `/event-list` to find event IDs\n"
-                  "• Events support natural time parsing ('tomorrow 8pm')\n"
-                  "• Automatic reminders are sent before events\n"
-                  "• RSVPs can include optional notes",
-            inline=False
-        )
-        
-        await interaction.response.send_message(embed=commands_embed, ephemeral=True)
-    
-    @discord.ui.button(label="🏠 Dashboard", style=discord.ButtonStyle.success, row=1)
-    async def back_to_dashboard(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = DashboardView(self.bot, self.user_id)
-        embed = await view.create_dashboard_embed(interaction)
-        await interaction.response.edit_message(embed=embed, view=view)
 
 class EnhancedMenuSystem(commands.Cog):
     """Enhanced menu system with professional UI/UX"""
