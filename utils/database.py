@@ -2541,58 +2541,8 @@ class DatabaseManager:
             logger.error(f"Failed to get prospect vote history: {e}")
             return []
     
-    # Dues Management Methods
-    async def create_dues_period(self, guild_id: int, period_name: str, description: str, 
-                               due_amount: float, due_date: datetime, created_by_id: int) -> int:
-        """Create a new dues period"""
-        try:
-            conn = await self._get_shared_connection()
-            cursor = await conn.execute('''
-                INSERT INTO dues_periods (guild_id, period_name, description, due_amount, 
-                                        due_date, created_by_id, created_at, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-            ''', (guild_id, period_name, description, due_amount, 
-                  due_date.isoformat(), created_by_id, datetime.now().isoformat()))
-            
-            period_id = cursor.lastrowid
-            await self._execute_commit()
-            
-            logger.info(f"Created dues period '{period_name}' (ID: {period_id}) for guild {guild_id}")
-            return period_id
-            
-        except Exception as e:
-            logger.error(f"Failed to create dues period: {e}")
-            raise
+    # Dues Management Methods (V2 - using main method above)
     
-    async def get_active_dues_periods(self, guild_id: int):
-        """Get all active dues periods for a guild"""
-        try:
-            conn = await self._get_shared_connection()
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute('''
-                SELECT id, guild_id, period_name, description, due_amount, due_date, 
-                       created_by_id, created_at
-                FROM dues_periods 
-                WHERE guild_id = ? AND is_active = 1
-                ORDER BY due_date ASC
-            ''', (guild_id,))
-            
-            rows = await cursor.fetchall()
-            return [{
-                'id': row['id'],
-                'guild_id': row['guild_id'],
-                'period_name': row['period_name'],
-                'description': row['description'],
-                'amount': row['due_amount'],
-                'due_date': row['due_date'],
-                'created_by_id': row['created_by_id'],
-                'created_at': row['created_at'],
-                'updated_at': row['updated_at'] if 'updated_at' in row.keys() and row['updated_at'] else row['created_at']  # Fallback to created_at
-            } for row in rows]
-            
-        except Exception as e:
-            logger.error(f"Failed to get active dues periods: {e}")
-            return []
     
     async def get_user_dues_payment(self, guild_id: int, user_id: int, dues_period_id: int):
         """Get a user's payment for a specific dues period"""
@@ -2626,83 +2576,7 @@ class DatabaseManager:
             logger.error(f"Failed to get user dues payment: {e}")
             return None
     
-    async def get_dues_payments_for_period(self, guild_id: int, dues_period_id: int):
-        """Get all payments for a specific dues period"""
-        try:
-            conn = await self._get_shared_connection()
-            conn.row_factory = aiosqlite.Row
-            cursor = await conn.execute('''
-                SELECT dp.id, dp.user_id, dp.dues_period_id, dp.amount_paid, dp.payment_date, 
-                       dp.payment_method, dp.payment_status, dp.notes, dp.updated_by_id, 
-                       dp.updated_at, m.discord_name
-                FROM dues_payments dp
-                LEFT JOIN members m ON dp.user_id = m.user_id AND dp.guild_id = m.guild_id
-                WHERE dp.guild_id = ? AND dp.dues_period_id = ?
-                ORDER BY dp.updated_at DESC
-            ''', (guild_id, dues_period_id))
-            
-            rows = await cursor.fetchall()
-            return [{
-                'id': row['id'],
-                'user_id': row['user_id'],
-                'dues_period_id': row['dues_period_id'],
-                'amount_paid': row['amount_paid'],
-                'payment_date': row['payment_date'],
-                'payment_method': row['payment_method'],
-                'status': row['payment_status'],
-                'notes': row['notes'],
-                'updated_by_id': row['updated_by_id'],
-                'updated_at': row['updated_at'],
-                'discord_name': row['discord_name'] or 'Unknown'
-            } for row in rows]
-            
-        except Exception as e:
-            logger.error(f"Failed to get dues payments for period: {e}")
-            return []
     
-    async def update_dues_payment(self, guild_id: int, user_id: int, dues_period_id: int, 
-                                amount_paid: float, payment_status: str, 
-                                payment_date: datetime = None, payment_method: str = None, 
-                                notes: str = None, updated_by_id: int = None) -> int:
-        """Update or create a dues payment record"""
-        try:
-            # Check if payment record exists
-            existing = await self.get_user_dues_payment(guild_id, user_id, dues_period_id)
-            
-            conn = await self._get_shared_connection()
-            
-            if existing:
-                # Update existing record
-                cursor = await conn.execute('''
-                    UPDATE dues_payments 
-                    SET amount_paid = ?, payment_status = ?, payment_date = ?, 
-                        payment_method = ?, notes = ?, updated_by_id = ?, updated_at = ?
-                    WHERE guild_id = ? AND user_id = ? AND dues_period_id = ?
-                ''', (amount_paid, payment_status, 
-                      payment_date.isoformat() if payment_date else None, 
-                      payment_method, notes, updated_by_id, datetime.now().isoformat(),
-                      guild_id, user_id, dues_period_id))
-                record_id = existing['id']
-            else:
-                # Create new record
-                cursor = await conn.execute('''
-                    INSERT INTO dues_payments (guild_id, user_id, dues_period_id, amount_paid, 
-                                             payment_date, payment_method, payment_status, 
-                                             notes, updated_by_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (guild_id, user_id, dues_period_id, amount_paid, 
-                      payment_date.isoformat() if payment_date else None, 
-                      payment_method, payment_status, notes, updated_by_id, 
-                      datetime.now().isoformat(), datetime.now().isoformat()))
-                record_id = cursor.lastrowid
-            
-            await self._execute_commit()
-            logger.info(f"Updated dues payment for user {user_id} in period {dues_period_id}: {payment_status} ${amount_paid}")
-            return record_id
-            
-        except Exception as e:
-            logger.error(f"Failed to update dues payment: {e}")
-            raise
     
     async def deactivate_dues_period(self, guild_id: int, period_id: int, updated_by_id: int):
         """Deactivate a dues period"""

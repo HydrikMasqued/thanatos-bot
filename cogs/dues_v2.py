@@ -753,7 +753,7 @@ class DuesManagementView(discord.ui.View):
         
         try:
             # Get period details
-            period = await self.bot.db.get_dues_period(self.guild_id, self.period_id)
+            period = await self.bot.db.get_dues_period_by_id(self.period_id)
             if not period:
                 await interaction.followup.send("❌ Period not found.", ephemeral=True)
                 return
@@ -910,7 +910,7 @@ class DuesManagementView(discord.ui.View):
         
         try:
             # Get period and payment data
-            period = await self.bot.db.get_dues_period(self.guild_id, self.period_id)
+            period = await self.bot.db.get_dues_period_by_id(self.period_id)
             payments = await self.bot.db.get_dues_payments_for_period(self.guild_id, self.period_id)
             
             if not period:
@@ -1113,7 +1113,7 @@ class EnhancedRecordPaymentModal(discord.ui.Modal, title="💳 Record Payment"):
                 return
             
             # Get period details to determine payment status
-            period = await self.bot.db.get_dues_period(self.guild_id, self.period_id)
+            period = await self.bot.db.get_dues_period_by_id(self.period_id)
             if not period:
                 await interaction.followup.send("❌ Period not found.", ephemeral=True)
                 return
