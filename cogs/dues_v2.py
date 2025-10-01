@@ -232,7 +232,7 @@ class DuesView(discord.ui.View):
                 )
                 
                 due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
-                amount = period['amount']
+                amount = period['due_amount']
                 
                 if payment:
                     status = payment['status']
@@ -314,7 +314,7 @@ class DuesView(discord.ui.View):
             options = []
             for period in periods[:25]:  # Discord limit
                 due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
-                description = f"${period['amount']:.2f} - Due: {due_date.strftime('%m/%d/%Y')}"
+                description = f"${period['due_amount']:.2f} - Due: {due_date.strftime('%m/%d/%Y')}"
                 options.append(discord.SelectOption(
                     label=period['period_name'][:100],  # Discord limit
                     value=str(period['id']),
@@ -360,7 +360,7 @@ class DuesView(discord.ui.View):
                 period_id = await self.bot.db.create_dues_period(
                     guild_id=self.guild_id,
                     period_name=period_data["name"],
-                    amount=period_data["amount"],
+                    due_amount=period_data["amount"],
                     due_date=period_data["due_date"],
                     description=period_data["description"]
                 )
@@ -537,7 +537,7 @@ class PaymentManagementView(discord.ui.View):
                 
                 for payment in payments:
                     member_name = payment.get('discord_name', 'Unknown')
-                    csv_content += f"{member_name},{period['period_name']},${period['amount']:.2f},"
+                    csv_content += f"{member_name},{period['period_name']},${period['due_amount']:.2f},"
                     csv_content += f"${payment['amount_paid']:.2f},{payment['status']},"
                     csv_content += f"{period['due_date']},{payment.get('payment_date', 'N/A')},"
                     csv_content += f"{payment.get('payment_method', 'N/A')}\n"
@@ -626,7 +626,7 @@ class EnhancedCreatePeriodModal(discord.ui.Modal, title="✨ Create New Dues Per
             period_id = await self.bot.db.create_dues_period(
                 guild_id=self.guild_id,
                 period_name=self.period_name.value,
-                amount=amount_val,
+                due_amount=amount_val,
                 due_date=due_datetime,
                 description=self.description.value or None
             )
@@ -920,7 +920,7 @@ class DuesManagementView(discord.ui.View):
                     member_name = member.display_name if member else f"Unknown ({payment['user_id']})"
                     
                     csv_content += f"\"{member_name}\",{payment['user_id']},"
-                    csv_content += f"${period['amount']:.2f},${payment.get('amount_paid', 0):.2f},"
+                    csv_content += f"${period['due_amount']:.2f},${payment.get('amount_paid', 0):.2f},"
                     csv_content += f"{payment.get('status', 'unpaid')},"
                     csv_content += f"{payment.get('payment_date', 'N/A')},"
                     csv_content += f"{payment.get('payment_method', 'N/A')},"
@@ -1113,7 +1113,7 @@ class EnhancedRecordPaymentModal(discord.ui.Modal, title="💳 Record Payment"):
                 return
             
             # Determine payment status
-            if amount >= period['amount']:
+            if amount >= period['due_amount']:
                 status = PaymentStatus.PAID
             elif amount > 0:
                 status = PaymentStatus.PARTIAL
@@ -1478,7 +1478,7 @@ class RecordPaymentModal(discord.ui.Modal, title="Record Payment"):
                 amount_paid=amount,
                 payment_date=datetime.now(),
                 payment_method=str(self.payment_method.value),
-                payment_status=PaymentStatus.PAID if amount >= period['amount'] else PaymentStatus.PARTIAL,
+                payment_status=PaymentStatus.PAID if amount >= period['due_amount'] else PaymentStatus.PARTIAL,
                 updated_by_id=interaction.user.id
             )
             
@@ -1638,7 +1638,7 @@ class DuesManagementV2(commands.Cog):
                 for period in periods[:3]:  # Show first 3 periods
                     due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
                     period_summary.append(
-                        f"• **{period['period_name']}** - ${period['amount']:.2f} "
+                        f"• **{period['period_name']}** - ${period['due_amount']:.2f} "
                         f"(Due: <t:{int(due_date.timestamp())}:D>)"
                     )
                 
@@ -1741,7 +1741,7 @@ class DuesManagementV2(commands.Cog):
             
             embed.add_field(
                 name="Period Details",
-                value=f"**Amount:** ${period['amount']:.2f}\n"
+                value=f"**Amount:** ${period['due_amount']:.2f}\n"
                       f"**Due Date:** <t:{int(due_date.timestamp())}:D>\n"
                       f"**Unpaid Members:** {len(unpaid_members)}",
                 inline=False
@@ -1786,7 +1786,7 @@ class DuesManagementV2(commands.Cog):
             
             embed.add_field(
                 name="Period Details",
-                value=f"**Amount:** ${period['amount']:.2f}\n"
+                value=f"**Amount:** ${period['due_amount']:.2f}\n"
                       f"**Due Date:** <t:{int(due_date.timestamp())}:D>\n"
                       f"Please make your payment before the due date.",
                 inline=False
