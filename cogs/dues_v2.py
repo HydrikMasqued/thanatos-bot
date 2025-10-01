@@ -231,7 +231,10 @@ class DuesView(discord.ui.View):
                     period['id']
                 )
                 
-                due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                if period['due_date']:
+                    due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                else:
+                    due_date = datetime.now() + timedelta(days=30)
                 amount = period['due_amount']
                 
                 if payment:
@@ -313,7 +316,10 @@ class DuesView(discord.ui.View):
             # Create dropdown with periods
             options = []
             for period in periods[:25]:  # Discord limit
-                due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                if period['due_date']:
+                    due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                else:
+                    due_date = datetime.now() + timedelta(days=30)
                 description = f"${period['due_amount']:.2f} - Due: {due_date.strftime('%m/%d/%Y')}"
                 options.append(discord.SelectOption(
                     label=period['period_name'][:100],  # Discord limit
@@ -1636,7 +1642,10 @@ class DuesManagementV2(commands.Cog):
                 # Show summary of active periods
                 period_summary = []
                 for period in periods[:3]:  # Show first 3 periods
-                    due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                    if period['due_date']:
+                        due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                    else:
+                        due_date = datetime.now() + timedelta(days=30)  # Default to 30 days from now
                     period_summary.append(
                         f"• **{period['period_name']}** - ${period['due_amount']:.2f} "
                         f"(Due: <t:{int(due_date.timestamp())}:D>)"
@@ -1691,7 +1700,10 @@ class DuesManagementV2(commands.Cog):
                     periods = await self.db.get_active_dues_periods(guild.id)
                     
                     for period in periods:
-                        due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                        if period['due_date']:
+                            due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
+                        else:
+                            continue  # Skip periods without due dates
                         now = datetime.now()
                         
                         # Check if overdue (send reminder once per day)
@@ -1729,6 +1741,8 @@ class DuesManagementV2(commands.Cog):
             if not unpaid_members:
                 return
             
+            if not period['due_date']:
+                return  # Skip periods without due dates
             due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
             days_overdue = (datetime.now() - due_date).days
             
@@ -1774,6 +1788,8 @@ class DuesManagementV2(commands.Cog):
             if not channel:
                 return
             
+            if not period['due_date']:
+                return  # Skip periods without due dates
             due_date = datetime.fromisoformat(period['due_date'].replace('Z', '+00:00'))
             days_until_due = (due_date - datetime.now()).days
             
